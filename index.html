@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Koja — Joy, compiled.</title>
+    <meta
+      name="description"
+      content="Koja is a programming language to spark joy. In early development. Coming soon."
+    />
+    <meta property="og:title" content="Koja — Joy, compiled." />
+    <meta
+      property="og:description"
+      content="Koja is a programming language to spark joy. In early development. Coming soon."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://kojalang.org" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&family=Source+Sans+3:wght@400;500;600;700&family=Source+Code+Pro:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script>
+      // Resolve theme before first paint to avoid a flash of the wrong mode.
+      const systemDark = matchMedia("(prefers-color-scheme: dark)");
+      const applyTheme = (theme) => {
+        document.documentElement.dataset.theme = theme;
+      };
+      applyTheme(
+        localStorage.getItem("theme") ??
+          (systemDark.matches ? "dark" : "light"),
+      );
+      systemDark.addEventListener("change", (event) => {
+        if (!localStorage.getItem("theme")) {
+          applyTheme(event.matches ? "dark" : "light");
+        }
+      });
+    </script>
+  </head>
+  <body>
+    <header class="nav">
+      <a class="nav-brand" href="/">
+        <img src="logo.svg" alt="Koja" height="24" />
+      </a>
+      <nav class="nav-links">
+        <a href="https://github.com/koja-lang/koja/blob/main/LANGUAGE.md">
+          Language
+        </a>
+        <a href="https://github.com/koja-lang/koja/blob/main/INSTALLING.md">
+          Install
+        </a>
+        <a href="https://github.com/koja-lang/koja">GitHub</a>
+        <a href="https://discord.gg/QB2DMTxRSh">Discord</a>
+        <button class="theme-toggle" type="button" aria-label="Toggle theme">
+          <svg
+            class="icon-moon"
+            viewBox="0 0 24 24"
+            width="18"
+            height="18"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+          </svg>
+          <svg
+            class="icon-sun"
+            viewBox="0 0 24 24"
+            width="18"
+            height="18"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="4" />
+            <path
+              d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4m11.4-11.4 1.4-1.4"
+            />
+          </svg>
+        </button>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <span class="badge">Early development · Coming soon</span>
+        <h1>Joy, compiled<span class="accent">.</span></h1>
+        <p class="hero-trio">Friendly. Safe. Powerful.</p>
+        <p class="hero-sub">
+          Koja is a statically typed, compiled language targeting native
+          binaries via LLVM. It combines Ruby-inspired syntax with functional
+          value semantics and an Erlang-style concurrency model.
+        </p>
+        <div class="hero-actions">
+          <a class="button primary" href="#install">Try the preview</a>
+          <a class="button" href="https://github.com/koja-lang/koja">
+            View on GitHub
+          </a>
+        </div>
+      </section>
+
+      <section class="showcase">
+        <div class="window">
+          <div class="window-bar">
+            <span class="dot red"></span>
+            <span class="dot yellow"></span>
+            <span class="dot green"></span>
+            <span class="window-title">point.kojs</span>
+          </div>
+          <pre><code><span class="kw">struct</span> <span class="ty">Point</span>
+  x: <span class="ty">Int32</span>
+  y: <span class="ty">Int32</span>
+
+  <span class="kw">fn</span> <span class="fn">distance_squared</span>(<span class="kw">self</span>) -&gt; <span class="ty">Int32</span>
+    <span class="kw">self</span>.x * <span class="kw">self</span>.x + <span class="kw">self</span>.y * <span class="kw">self</span>.y
+  <span class="kw">end</span>
+<span class="kw">end</span>
+
+p = <span class="ty">Point</span>{x: <span class="nm">3</span>, y: <span class="nm">4</span>}
+<span class="ty">IO</span>.<span class="fn">puts</span>(<span class="st">"distance² is #{p.distance_squared()}"</span>)</code></pre>
+        </div>
+        <div class="window terminal">
+          <div class="window-bar">
+            <span class="dot red"></span>
+            <span class="dot yellow"></span>
+            <span class="dot green"></span>
+            <span class="window-title">terminal</span>
+          </div>
+          <pre><code><span class="prompt">$</span> koja run point.kojs
+distance² is 25
+<span class="prompt">$</span> koja build <span class="dim">&amp;&amp;</span> ./point
+distance² is 25</code></pre>
+        </div>
+      </section>
+
+      <section class="install" id="install">
+        <h2>Try the preview</h2>
+        <p class="install-lead">
+          Koja is alpha software. Expect rough edges and breaking changes.
+        </p>
+        <div class="window terminal">
+          <div class="window-bar">
+            <span class="dot red"></span>
+            <span class="dot yellow"></span>
+            <span class="dot green"></span>
+            <span class="window-title">terminal</span>
+          </div>
+          <pre><code><span class="prompt">$</span> asdf plugin add koja https://github.com/koja-lang/asdf-koja.git
+<span class="prompt">$</span> asdf install koja latest
+<span class="prompt">$</span> echo 'IO.puts("hello, world!")' &gt; hello.kojs
+<span class="prompt">$</span> koja run hello.kojs
+hello, world!</code></pre>
+        </div>
+        <p class="install-note">
+          Prebuilt binaries for macOS (Apple Silicon) and Linux (x86_64),
+          including the <code>koja-lsp</code> language server. Other platforms
+          can
+          <a href="https://github.com/koja-lang/koja/blob/main/INSTALLING.md"
+            >build from source</a
+          >.
+        </p>
+      </section>
+
+      <section class="community">
+        <div class="community-card">
+          <h2>Join the community</h2>
+          <p class="community-lead">
+            Koja is just getting started. Come be a part of it. Ask questions,
+            share what you're building, and follow along as the language grows.
+          </p>
+          <a
+            class="button primary discord"
+            href="https://discord.gg/QB2DMTxRSh"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="20"
+              height="20"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                d="M20.317 4.369a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.249a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.249.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.1 13.1 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.057c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.331c-1.182 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"
+              />
+            </svg>
+            Join the Discord
+          </a>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        MIT licensed. Built with joy by
+        <a href="https://github.com/hpopp">Henry Popp</a> and
+        <a href="https://github.com/koja-lang/koja/graphs/contributors"
+          >contributors</a
+        >.
+      </p>
+      <p>
+        <a href="https://github.com/koja-lang/koja">GitHub</a> ·
+        <a href="https://github.com/koja-lang/koja/blob/main/CHANGELOG.md"
+          >Changelog</a
+        >
+        ·
+        <a href="https://github.com/koja-lang/koja/releases">Releases</a>
+      </p>
+    </footer>
+
+    <script>
+      document.querySelector(".theme-toggle").addEventListener("click", () => {
+        const next =
+          document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+        localStorage.setItem("theme", next);
+        applyTheme(next);
+      });
+    </script>
+  </body>
+</html>
