@@ -36,15 +36,17 @@
       <a class="nav-brand" href="/">
         <img src="/logo.svg" alt="Koja" height="24" />
       </a>
-      <nav class="nav-links">
-        <a href="https://github.com/koja-lang/koja/blob/main/LANGUAGE.md"
-          >Language</a
-        >
-        <a href="https://github.com/koja-lang/koja/blob/main/INSTALLING.md"
-          >Install</a
-        >
-        <a href="https://github.com/koja-lang/koja">GitHub</a>
-        <a href="https://discord.gg/QB2DMTxRSh">Discord</a>
+      <div class="nav-right">
+        <nav class="nav-links" id="nav-menu">
+          <a href="https://github.com/koja-lang/koja/blob/main/LANGUAGE.md"
+            >Language</a
+          >
+          <a href="https://github.com/koja-lang/koja/blob/main/INSTALLING.md"
+            >Install</a
+          >
+          <a href="https://github.com/koja-lang/koja">GitHub</a>
+          <a href="https://discord.gg/QB2DMTxRSh">Discord</a>
+        </nav>
         <button class="theme-toggle" type="button" aria-label="Toggle theme">
           <svg
             class="icon-moon"
@@ -76,7 +78,41 @@
             />
           </svg>
         </button>
-      </nav>
+        <button
+          class="nav-toggle"
+          type="button"
+          aria-label="Toggle menu"
+          aria-controls="nav-menu"
+          aria-expanded="false"
+        >
+          <svg
+            class="icon-menu"
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M3 6h18M3 12h18M3 18h18" />
+          </svg>
+          <svg
+            class="icon-close"
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
     </header>
 
     <main>
@@ -119,6 +155,22 @@
           document.documentElement.dataset.theme === "dark" ? "light" : "dark";
         localStorage.setItem("theme", next);
         applyTheme(next);
+      });
+
+      const nav = document.querySelector(".nav");
+      const navToggle = document.querySelector(".nav-toggle");
+      const setMenuOpen = (open) => {
+        nav.dataset.open = String(open);
+        navToggle.setAttribute("aria-expanded", String(open));
+        document.body.style.overflow = open ? "hidden" : "";
+      };
+      navToggle.addEventListener("click", () => {
+        setMenuOpen(nav.dataset.open !== "true");
+      });
+      document.addEventListener("click", (event) => {
+        if (nav.dataset.open === "true" && !nav.contains(event.target)) {
+          setMenuOpen(false);
+        }
       });
     </script>
   </body>

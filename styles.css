@@ -62,12 +62,19 @@ a:hover {
 /* ---------- nav ---------- */
 
 .nav {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   max-width: var(--max-width);
   margin: 0 auto;
   padding: 1.25rem 1.5rem;
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 1.75rem;
 }
 
 .nav-brand {
@@ -121,6 +128,74 @@ a:hover {
 :root[data-theme="dark"] .icon-moon,
 :root:not([data-theme="dark"]) .icon-sun {
   display: none;
+}
+
+.nav-toggle {
+  display: none;
+  align-items: center;
+  padding: 0.35rem;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.nav-toggle:hover {
+  color: var(--ink);
+  background: var(--inline-code-bg);
+}
+
+.nav-toggle .icon-close {
+  display: none;
+}
+
+.nav-toggle[aria-expanded="true"] .icon-menu {
+  display: none;
+}
+
+.nav-toggle[aria-expanded="true"] .icon-close {
+  display: block;
+}
+
+@media (max-width: 640px) {
+  body {
+    overflow-x: hidden;
+  }
+
+  .nav-toggle {
+    display: flex;
+    position: relative;
+    z-index: 21;
+  }
+
+  .nav-links {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2rem;
+    background: var(--bg);
+    transform: translateX(100%);
+    visibility: hidden;
+    transition:
+      transform 0.3s ease,
+      visibility 0.3s ease;
+  }
+
+  .nav[data-open="true"] .nav-links {
+    transform: translateX(0);
+    visibility: visible;
+  }
+
+  .nav-links a {
+    font-size: 1.6rem;
+    font-weight: 600;
+    color: var(--ink);
+  }
 }
 
 /* ---------- hero ---------- */
