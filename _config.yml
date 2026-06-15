@@ -1,0 +1,17 @@
+title: Koja
+tagline: Joy, compiled.
+description: Koja is a programming language to spark joy. In early development. Coming soon.
+url: https://kojalang.org
+lang: en
+author: Henry Popp
+
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - README.md
+  - vendor
+  - .github

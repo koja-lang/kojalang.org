@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="{{ site.lang | default: 'en' }}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="theme-color"
+      media="(prefers-color-scheme: light)"
+      content="#f8fafc"
+    />
+    <meta
+      name="theme-color"
+      media="(prefers-color-scheme: dark)"
+      content="#011412"
+    />
+    {% if page.noindex %}
+    <meta name="robots" content="noindex" />
+    {% endif %} {% seo %}
+    <link
+      rel="icon"
+      href="{{ '/favicon.svg' | relative_url }}"
+      type="image/svg+xml"
+    />
+    <link
+      rel="preload"
+      href="{{ '/static/fonts/outfit.woff2' | relative_url }}"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="{{ '/static/fonts/source-sans-3.woff2' | relative_url }}"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link rel="stylesheet" href="{{ '/styles.css' | relative_url }}" />
+    <script>
+      // Resolve theme before first paint to avoid a flash of the wrong mode.
+      const systemDark = matchMedia("(prefers-color-scheme: dark)");
+      const applyTheme = (theme) => {
+        document.documentElement.dataset.theme = theme;
+      };
+      applyTheme(
+        localStorage.getItem("theme") ??
+          (systemDark.matches ? "dark" : "light"),
+      );
+      systemDark.addEventListener("change", (event) => {
+        if (!localStorage.getItem("theme")) {
+          applyTheme(event.matches ? "dark" : "light");
+        }
+      });
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    {% include nav.html %}
+
+    <main id="main-content" tabindex="-1">{{ content }}</main>
+
+    {% include footer.html %}
+
+    <script src="{{ '/assets/app.js' | relative_url }}"></script>
+  </body>
+</html>
