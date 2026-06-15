@@ -1,3 +1,38 @@
+/* ---------- fonts (self-hosted, latin subset) ---------- */
+
+@font-face {
+  font-family: "Outfit";
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url("static/fonts/outfit.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Source Sans 3";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("static/fonts/source-sans-3.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Source Code Pro";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("static/fonts/source-code-pro.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
   --bg: #f8fafc;
   --ink: #042f2e;
@@ -52,11 +87,43 @@ body {
 
 a {
   color: var(--accent);
-  text-decoration: none;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
 }
 
 a:hover {
-  text-decoration: underline;
+  text-decoration-thickness: 2px;
+}
+
+/* Structural/control links carry their own affordance, so no underline. */
+.nav-brand,
+.nav-links a,
+.button {
+  text-decoration: none;
+}
+
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.skip-link {
+  position: absolute;
+  left: 0.75rem;
+  top: -3.5rem;
+  z-index: 100;
+  padding: 0.6rem 1rem;
+  border-radius: 8px;
+  background: var(--button-primary-bg);
+  color: var(--button-primary-ink);
+  font-weight: 600;
+  text-decoration: none;
+  transition: top 0.15s ease;
+}
+
+.skip-link:focus {
+  top: 0.75rem;
 }
 
 /* ---------- nav ---------- */
@@ -88,10 +155,6 @@ a:hover {
   width: auto;
 }
 
-.nav-brand:hover {
-  text-decoration: none;
-}
-
 .nav-links {
   display: flex;
   align-items: center;
@@ -106,7 +169,6 @@ a:hover {
 
 .nav-links a:hover {
   color: var(--ink);
-  text-decoration: none;
 }
 
 .theme-toggle {
@@ -213,7 +275,7 @@ a:hover {
   padding: 0.55rem 1.25rem;
   border-radius: 999px;
   background: var(--accent-bright);
-  color: #fff;
+  color: #042f2e;
   font-size: 0.9rem;
   font-weight: 700;
   letter-spacing: 0.07em;
@@ -253,7 +315,7 @@ a:hover {
 .button {
   display: inline-block;
   padding: 0.75rem 1.6rem;
-  border: 1.5px solid var(--border);
+  border: 1.5px solid var(--ink-soft);
   border-radius: 999px;
   font-weight: 600;
   font-size: 1rem;
@@ -264,7 +326,6 @@ a:hover {
 }
 
 .button:hover {
-  text-decoration: none;
   transform: translateY(-1px);
   box-shadow: 0 4px 14px var(--shadow);
 }
@@ -289,7 +350,7 @@ a:hover {
   font-size: clamp(3rem, 12vw, 6rem);
   font-weight: 600;
   line-height: 1;
-  color: var(--accent-bright);
+  color: var(--accent);
 }
 
 .error h1 {
@@ -398,7 +459,7 @@ a:hover {
 }
 
 .dim {
-  color: rgb(240 253 250 / 45%);
+  color: rgb(240 253 250 / 60%);
 }
 
 /* ---------- install ---------- */
@@ -440,6 +501,7 @@ a:hover {
 .install-note code {
   font-family: var(--font-mono);
   font-size: 0.85em;
+  color: var(--ink);
   background: var(--inline-code-bg);
   padding: 0.1em 0.35em;
   border-radius: 5px;
@@ -475,7 +537,7 @@ a:hover {
 .community-lead {
   max-width: 34rem;
   margin: 0 auto 1.75rem;
-  color: var(--ink-soft);
+  color: var(--ink);
   font-size: 1rem;
 }
 
@@ -518,5 +580,23 @@ footer p + p {
   .hero-actions {
     flex-direction: column;
     align-items: center;
+  }
+}
+
+/* ---------- reduced motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .nav-links,
+  .button,
+  .skip-link {
+    transition: none;
+  }
+
+  .button:hover {
+    transform: none;
   }
 }
