@@ -6,9 +6,10 @@
   font-weight: 500 700;
   font-display: swap;
   src: url("static/fonts/outfit.woff2") format("woff2");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
-    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
-    U+2212, U+2215, U+FEFF, U+FFFD;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
 }
 
 @font-face {
@@ -17,9 +18,10 @@
   font-weight: 400 700;
   font-display: swap;
   src: url("static/fonts/source-sans-3.woff2") format("woff2");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
-    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
-    U+2212, U+2215, U+FEFF, U+FFFD;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
 }
 
 @font-face {
@@ -28,9 +30,10 @@
   font-weight: 400 600;
   font-display: swap;
   src: url("static/fonts/source-code-pro.woff2") format("woff2");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
-    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
-    U+2212, U+2215, U+FEFF, U+FFFD;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
 }
 
 :root {
@@ -124,6 +127,18 @@ button:focus-visible {
 
 .skip-link:focus {
   top: 0.75rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* ---------- nav ---------- */
@@ -547,6 +562,129 @@ button:focus-visible {
   gap: 0.6rem;
 }
 
+/* ---------- extensions ---------- */
+
+.extensions {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 1rem 1.5rem 4rem;
+  text-align: center;
+}
+
+.extensions h2 {
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 4vw, 2.4rem);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-bottom: 0.75rem;
+}
+
+.extensions-lead {
+  max-width: 36rem;
+  margin: 0 auto 2.25rem;
+  color: var(--ink-soft);
+  font-size: 1rem;
+}
+
+.extensions-lead code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--ink);
+  background: var(--inline-code-bg);
+  padding: 0.1em 0.35em;
+  border-radius: 5px;
+}
+
+.ext-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
+}
+
+.ext-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 1.75rem 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--inline-code-bg);
+  color: var(--ink);
+  text-align: left;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.ext-card:hover,
+.ext-card:focus-within {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px var(--shadow);
+}
+
+.ext-icon {
+  width: 36px;
+  height: 36px;
+  margin-bottom: 1rem;
+  color: var(--accent);
+}
+
+.ext-icons {
+  display: flex;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+
+.ext-icons .ext-icon {
+  margin-bottom: 0;
+}
+
+.ext-card h3 {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ext-card p {
+  margin-top: 0.5rem;
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
+
+.ext-card code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--ink);
+  background: var(--bg);
+  padding: 0.1em 0.35em;
+  border-radius: 5px;
+}
+
+.ext-link {
+  margin-top: auto;
+  padding-top: 1.25rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+/* Stretch the link over the whole card so the entire card is clickable while
+   staying a single, properly labelled, focusable link. */
+.ext-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+:root[data-theme="dark"] .extensions-lead,
+:root[data-theme="dark"] .ext-card p {
+  color: var(--ink);
+}
+
+:root[data-theme="dark"] .ext-card code {
+  background: rgb(240 253 250 / 10%);
+}
+
 /* ---------- footer ---------- */
 
 footer {
@@ -565,6 +703,10 @@ footer p + p {
 
 @media (max-width: 820px) {
   .showcase {
+    grid-template-columns: 1fr;
+  }
+
+  .ext-grid {
     grid-template-columns: 1fr;
   }
 
