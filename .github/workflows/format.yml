@@ -22,4 +22,4 @@ jobs:
           node-version: 20
 
       - name: Check formatting
-        run: npx --yes prettier@3.4.2 --check "**/*.{css,html,js,json,md,yml,yaml}"
+        run: npx --yes prettier@latest --check "**/*.{css,html,js,json,md,yml,yaml}"
