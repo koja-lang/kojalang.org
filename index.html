@@ -3,7 +3,7 @@ layout: default
 ---
 
 <section class="hero">
-  <span class="badge">Early development · Coming soon</span>
+  <span class="badge">Alpha · Early development</span>
   <h1>Joy, compiled.</h1>
   <p class="hero-trio">Friendly. Safe. Powerful.</p>
   <p class="hero-sub">
@@ -12,7 +12,7 @@ layout: default
     an Erlang-style concurrency model.
   </p>
   <div class="hero-actions">
-    <a class="button primary" href="#install">Try the preview</a>
+    <a class="button primary" href="#install">Get started</a>
     <a class="button" href="https://github.com/koja-lang/koja">
       View on GitHub
     </a>
@@ -54,7 +54,7 @@ distance² is 25{% endraw %}</code></pre>
 </section>
 
 <section class="install" id="install">
-  <h2>Try the preview</h2>
+  <h2>Get started</h2>
   <p class="install-lead">
     Koja is alpha software. Expect rough edges and breaking changes.
   </p>
@@ -67,13 +67,14 @@ distance² is 25{% endraw %}</code></pre>
     </div>
     <pre><code>{% raw %}<span class="prompt">$</span> asdf plugin add koja https://github.com/koja-lang/asdf-koja.git
 <span class="prompt">$</span> asdf install koja latest
+<span class="prompt">$</span> asdf set --home koja latest
 <span class="prompt">$</span> echo 'IO.puts("hello, world!")' &gt; hello.kojs
 <span class="prompt">$</span> koja run hello.kojs
 hello, world!{% endraw %}</code></pre>
   </div>
   <p class="install-note">
-    Prebuilt binaries for macOS (Apple Silicon) and Linux (x86_64), including
-    the
+    Prebuilt binaries for macOS (Apple Silicon) and Linux (x86_64, arm64),
+    including the
     <code>koja-lsp</code> language server. Other platforms can
     <a href="https://github.com/koja-lang/koja/blob/main/INSTALLING.md"
       >build from source</a
