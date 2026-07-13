@@ -133,7 +133,7 @@ Copies are observably independent for every type. Mutating one binding never aff
 
 ### Constants
 
-Module-level constants are declared with `const`. Values can be literals (int, float, string, bool), enum unit variants, or struct literals whose fields are all constant expressions:
+Package-level constants are declared with `const`. Values can be literals (int, float, string, bool), enum unit variants, or struct literals whose fields are all constant expressions:
 
 ```koja
 const MAX = 100
@@ -1010,9 +1010,9 @@ Protocol dispatch is static via monomorphization. No vtables, no dynamic dispatc
 
 ---
 
-## Modules
+## Packages
 
-Each `.koja` file is a module. In a project (defined by `koja.toml`), all types and public functions across all files are visible in every file. No imports needed.
+A package is the unit of code organization, defined by a `koja.toml` manifest. Files within a package are transparent: they share one namespace, and every top-level declaration (type, function, constant) is visible from every other file in the package. Files carry no namespace of their own, and there are no imports:
 
 ```koja
 # src/helper.koja
@@ -1034,15 +1034,17 @@ impl Process<(), (), ()> for App
   end
 
   fn run(self) -> StopReason
-    Helper.add(3, 4).print()
+    add(3, 4).print()
     StopReason.Normal
   end
 end
 ```
 
+Other packages (the qualified standard library and dependencies) are reached through their package name: `JSON.Decoder`, `Net.TCPSocket`, `HTTP.get(...)`.
+
 ### Visibility
 
-Access control is at the declaration level (`priv`), not the module level:
+Access control is at the declaration level (`priv`), not the file level:
 
 - A top-level `priv` declaration (`fn`, `struct`, `enum`, `const`, `type`,
   `protocol`) is **package-private**: usable from any file in the same
@@ -1066,7 +1068,7 @@ alias JSON.Encoder as JSONEncoder
 conn = TCPSocket.connect("example.com", 80)
 ```
 
-`alias Net.TCPSocket` makes `TCPSocket` available as a local name. `alias JSON.Encoder as JSONEncoder` binds a custom local name. Aliases are scoped to the declaring file and don't affect other modules.
+`alias Net.TCPSocket` makes `TCPSocket` available as a local name. `alias JSON.Encoder as JSONEncoder` binds a custom local name. Aliases are scoped to the declaring file and don't affect other files.
 
 Aliases name types only. Package-level functions are called with qualified syntax directly, no alias needed:
 
@@ -1301,7 +1303,7 @@ In most cases you won't use `receive` directly. The `Process` protocol's default
 
 ## Standard Library
 
-The following types and functions are available in every module.
+The following types and functions are available in every file with no alias needed.
 
 ### Built-in Functions
 
