@@ -1,0 +1,193 @@
+<!doctype html>
+<!-- Design source for static/og-image.png. Not deployed (excluded in
+     _config.yml). To regenerate: serve the repo root, open this page
+     at 1200x630, and screenshot it. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      @font-face {
+        font-family: "Outfit";
+        font-weight: 500 700;
+        src: url("static/fonts/outfit.woff2") format("woff2");
+      }
+
+      @font-face {
+        font-family: "Source Sans 3";
+        font-weight: 400 700;
+        src: url("static/fonts/source-sans-3.woff2") format("woff2");
+      }
+
+      @font-face {
+        font-family: "Source Code Pro";
+        font-weight: 400 600;
+        src: url("static/fonts/source-code-pro.woff2") format("woff2");
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        width: 1200px;
+        height: 630px;
+        display: flex;
+        align-items: center;
+        gap: 40px;
+        padding: 0 48px;
+        background: radial-gradient(
+          120% 160% at 85% 10%,
+          #0a4a44 0%,
+          #042f2e 55%,
+          #02201f 100%
+        );
+        font-family: "Source Sans 3", sans-serif;
+        overflow: hidden;
+      }
+
+      .brand {
+        flex: 1;
+      }
+
+      .brand img {
+        height: 64px;
+        margin-bottom: 40px;
+      }
+
+      .brand h1 {
+        font-family: "Outfit", sans-serif;
+        font-size: 72px;
+        font-weight: 600;
+        letter-spacing: -0.015em;
+        line-height: 1.05;
+        white-space: nowrap;
+        color: #f0fdfa;
+      }
+
+      .brand p {
+        margin-top: 20px;
+        font-size: 25px;
+        color: #94c4bd;
+      }
+
+      .brand .url {
+        margin-top: 48px;
+        font-family: "Source Code Pro", monospace;
+        font-size: 26px;
+        color: #2dd4bf;
+      }
+
+      .window {
+        width: 560px;
+        border: 1px solid rgb(240 253 250 / 14%);
+        border-radius: 16px;
+        background: #1f2430;
+        box-shadow:
+          0 0 90px rgb(45 212 191 / 18%),
+          0 34px 80px rgb(0 0 0 / 60%);
+        overflow: hidden;
+      }
+
+      .window-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 14px 18px;
+        background: rgb(240 253 250 / 7%);
+      }
+
+      .dot {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+      }
+
+      .dot.red {
+        background: #ff5f57;
+      }
+
+      .dot.yellow {
+        background: #febc2e;
+      }
+
+      .dot.green {
+        background: #28c840;
+      }
+
+      .window-title {
+        margin-left: 10px;
+        font-family: "Source Code Pro", monospace;
+        font-size: 15px;
+        color: rgb(203 204 198 / 55%);
+      }
+
+      .window pre {
+        padding: 22px 30px;
+        font-family: "Source Code Pro", monospace;
+        font-size: 23px;
+        line-height: 1.45;
+        color: #cbccc6;
+      }
+
+      .window pre.output {
+        padding-top: 22px;
+        border-top: 1px solid rgb(203 204 198 / 12%);
+      }
+
+      .kw {
+        color: #ffa759;
+      }
+
+      .ty {
+        color: #73d0ff;
+      }
+
+      .fn {
+        color: #ffd580;
+      }
+
+      .st {
+        color: #bae67e;
+      }
+
+      .kc {
+        color: #ffa759;
+        font-style: italic;
+      }
+
+      .prompt {
+        color: #ffcc66;
+        font-weight: 500;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="brand">
+      <img src="logo.svg" alt="Koja" />
+      <h1>Joy, compiled.</h1>
+      <p>The Koja programming language</p>
+      <p class="url">kojalang.org</p>
+    </div>
+    <div class="window">
+      <div class="window-bar">
+        <span class="dot red"></span>
+        <span class="dot yellow"></span>
+        <span class="dot green"></span>
+        <span class="window-title">joy.kojs</span>
+      </div>
+      <pre><span class="kw">struct</span> <span class="ty">Koja</span>
+  sparks_joy?: <span class="ty">Bool</span>
+
+  <span class="kw">fn</span> <span class="fn">new</span>() -&gt; <span class="ty">Koja</span>
+    <span class="ty">Koja</span>{sparks_joy?: <span class="kc">true</span>}
+  <span class="kw">end</span>
+<span class="kw">end</span>
+
+<span class="ty">Koja</span>.<span class="fn">new</span>().<span class="fn">print</span>()</pre>
+      <pre class="output"><span class="prompt">$</span> koja run joy.kojs
+<span class="ty">Koja</span>{sparks_joy?: <span class="kc">true</span>}</pre>
+    </div>
+  </body>
+</html>

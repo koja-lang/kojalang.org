@@ -16,12 +16,25 @@
     />
     {% if page.noindex %}
     <meta name="robots" content="noindex" />
-    {% endif %} {% seo %}
+    {% endif %}
+    <!-- jekyll-seo-tag hardcodes a "|" separator, so the title is
+         emitted by hand to get the "Page - Brand" format. -->
+    {% if page.title %}
+    <title>{{ page.title }} - {{ site.brand }}</title>
+    {% else %}
+    <title>{{ site.brand }}</title>
+    {% endif %} {% seo title=false %}
+    <link rel="icon" href="{{ '/favicon.ico' | relative_url }}" sizes="48x48" />
     <link
       rel="icon"
       href="{{ '/favicon.svg' | relative_url }}"
       type="image/svg+xml"
     />
+    <link
+      rel="apple-touch-icon"
+      href="{{ '/apple-touch-icon.png' | relative_url }}"
+    />
+    <link rel="manifest" href="{{ '/site.webmanifest' | relative_url }}" />
     <link
       rel="preload"
       href="{{ '/static/fonts/outfit.woff2' | relative_url }}"
