@@ -1,7 +1,7 @@
 title: Koja
 brand: The Koja programming language
 tagline: Joy, compiled.
-description: Koja is a programming language to spark joy. Now available in alpha.
+description: Koja is a programming language to spark joy. Statically typed, compiled to native binaries, with friendly syntax and effortless concurrency. Now in alpha.
 url: https://kojalang.org
 lang: en
 author: Henry Popp
