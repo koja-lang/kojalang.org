@@ -476,7 +476,7 @@ button:focus-visible {
 }
 
 .dim {
-  color: rgb(203 204 198 / 60%);
+  color: rgb(203 204 198 / 70%);
 }
 
 /* ---------- install ---------- */
@@ -937,7 +937,7 @@ button:focus-visible {
 .highlight .c,
 .highlight .c1,
 .highlight .cm {
-  color: rgb(203 204 198 / 60%);
+  color: rgb(203 204 198 / 70%);
   font-style: italic;
 }
 
