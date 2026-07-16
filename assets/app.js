@@ -67,9 +67,12 @@ document.addEventListener("keydown", (event) => {
 const toc = document.querySelector(".docs-toc");
 
 if (toc) {
-  const headings = document.querySelectorAll(
-    ".docs-content h2[id], .docs-content h3[id]",
-  );
+  const depth = Number.parseInt(toc.dataset.depth ?? "3", 10);
+  const headingSelector =
+    depth >= 3
+      ? ".docs-content h2[id], .docs-content h3[id]"
+      : ".docs-content h2[id]";
+  const headings = document.querySelectorAll(headingSelector);
   const list = document.createElement("ol");
   const linkFor = new Map();
 

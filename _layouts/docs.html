@@ -26,7 +26,12 @@ layout: default
         <path d="m6 9 6 6 6-6" />
       </svg>
     </button>
-    <nav class="docs-toc" id="docs-toc" aria-label="Table of contents">
+    <nav
+      class="docs-toc"
+      id="docs-toc"
+      aria-label="Table of contents"
+      data-depth="{{ page.toc_depth | default: 3 }}"
+    >
       <p class="docs-toc-title">On this page</p>
     </nav>
   </aside>

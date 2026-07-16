@@ -14,7 +14,11 @@ bundle install
 bundle exec jekyll serve
 ```
 
-Page content lives in `index.html`, the shared layout in `_layouts/default.html`, and the nav and footer partials in `_includes/`. Site metadata is in `_config.yml`.
+The landing page lives in `index.html`. The installation guide and language
+reference live in `install.md` and `language.md`, with canonical content from
+the Koja repository's `INSTALLING.md` and `LANGUAGE.md`. Shared layouts live in
+`_layouts/`, and navigation and footer partials live in `_includes/`. Site
+metadata is in `_config.yml`.
 
 ## Formatting
 

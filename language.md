@@ -3,11 +3,34 @@ layout: docs
 title: Language Reference
 description: The complete Koja language reference covering syntax, types, pattern matching, value semantics, protocols, concurrency, the standard library, and C FFI.
 permalink: /language/
-koja_version: 0.14.1
+koja_version: 0.15.1
 source_url: https://github.com/koja-lang/koja/blob/main/LANGUAGE.md
+toc_depth: 2
 ---
 
 Koja is a statically typed, compiled language targeting native binaries via LLVM, with no garbage collector. It combines a Rust-inspired type system, Swift-style value semantics, an Erlang-style concurrency model, and Ruby-inspired syntax. The compiler itself is implemented as a Rust workspace.
+
+> New to Koja? [Install the compiler](/install/), then start with
+> [value semantics](#value-semantics), [packages](#packages),
+> [concurrency](#concurrency), and [tooling](#tooling).
+
+## Table of Contents
+
+- [Lexical Structure](#lexical-structure): Comments, Identifiers, Keywords, Operators, Numeric Literals, Line Continuation
+- [Variables and Constants](#variables-and-constants): Assignment, Type Annotations, Compound Assignment, Constants
+- [Functions](#functions): Declaration, Private Declarations, `return`, Parameters
+- [Control Flow](#control-flow): `if`/`else`, `unless`, `while`, `loop`/`break`, `for`...`in`, Ternary
+- [Types](#types): Primitives, Numeric Widening, Arithmetic Faults, Unit, Strings, Structs, Enums, Union Types, Generics
+- [Pattern Matching](#pattern-matching): `match`, OR Patterns, `cond`
+- [Closures and Function Types](#closures-and-function-types): Block Closures, Short Closures, Capture Semantics, Function Types
+- [Value Semantics](#value-semantics): Rules, Copy Cost, Field Access
+- [Protocols](#protocols): Behavioral Contracts, Static Dispatch
+- [Packages](#packages): Transparent Files, Visibility, Aliases, Dependencies
+- [Concurrency](#concurrency): Processes, `spawn`/`receive`, `Ref`, `ReplyTo`, `Task`
+- [Standard Library](#standard-library): Built-in Functions, Core Types, Collections, String Methods, Binary/Bits, File I/O, Parsing, URI, Base, Path, Protocols
+- [C FFI](#c-ffi): `@extern "C"`, `CPtr<T>`, `CString`
+- [Annotations](#annotations): `@doc`, `@test`
+- [Tooling](#tooling): CLI Commands, LSP, Formatter
 
 ## Lexical Structure
 
@@ -133,13 +156,14 @@ Copies are observably independent for every type. Mutating one binding never aff
 
 ### Constants
 
-Package-level constants are declared with `const`. Values can be literals (int, float, string, bool), enum unit variants, or struct literals whose fields are all constant expressions:
+Package-level constants are declared with `const`. Values can be literals (int, float, string, bool), binary literals whose segments are all literals, enum unit variants, or struct literals whose fields are all constant expressions:
 
 ```koja
 const MAX = 100
 const PI = 3.14
 const NAME = "koja"
 const DEBUG = false
+const SYNC = <<0x53::8, 4::32>>
 const HEADING = Direction.North
 const ORIGIN = Point{x: 0, y: 0}
 ```
@@ -166,7 +190,7 @@ end
 
 Functions without a return type return `()`. Parameters require explicit types. Return type annotation is required if the function returns a value.
 
-A compiled program's entry point is a type implementing the `Process` protocol, named by `entry` in `koja.toml`. There is no `fn main`. Scripts (`.kojs`) execute top-level statements directly. Most functions are declared inside `impl` blocks on a struct or enum. See [Impl Functions](#impl-functions) and [Static Functions](#static-functions).
+A compiled program's entry point is a type implementing the `Process` protocol, named by `entry` in `koja.toml`. There is no `fn main`. Scripts (`.kojs`) execute top-level statements directly. Functions may be declared at the top level or inside struct, enum, and `impl` bodies. See [Structs](#structs), [Protocols](#protocols), and [Static Functions](#static-functions).
 
 ### Private Declarations
 
@@ -252,6 +276,17 @@ end
 `if`/`else` can be used as value-producing expressions when both branches produce values.
 
 There is no `else if`. For multi-way branching, use [`cond`](#cond).
+
+### `unless`
+
+`unless` executes its body when the condition is `false`. It is a
+single-branch conditional and does not accept `else`.
+
+```koja
+unless ready?
+  "not ready".print()
+end
+```
 
 ### `while`
 
@@ -1078,12 +1113,37 @@ response = HTTP.get("https://example.com")
 
 ### Standard library visibility
 
-The auto-imported `Global` package provides core types (`Option`, `Result`, `List`, `Map`, `Set`, `Process`, `IO`, `File`, `URI`, etc.) with no alias needed. Domain-specific packages require qualified access:
+The auto-imported `Global` package provides core types (`Option`, `Result`, `List`, `Map`, `Set`, `Process`, `IO`, `File`, `URI`, `Base`, `Path`, etc.) with no alias needed. Domain-specific packages require qualified access:
 
 - **`Crypto`**: `SHA1`, `SHA256`, `SHA384`, `SHA512`, `HMAC`, `Certificate`, `PrivateKey`, `PEMError`
 - **`Net`**: `TCPSocket`, `TCPListener`, `UDPSocket`, `Socket`, `IPAddress`, `SocketAddress`, `SocketKind`, `SocketError`, `TLSSession`, `TLSConfig`, `TLSIdentity`, `TrustStore`, `TLSError`, `VerificationError`
 
 Use `alias Crypto.SHA256` or `alias Net.TCPSocket` to access them.
+
+### Dependencies
+
+Packages declare dependencies in `koja.toml`, by local path or by git repository pinned to an exact ref:
+
+```toml
+[dependencies]
+Postgres = { github = "koja-lang/postgres", tag = "v0.1.0" }
+Vendored = { git = "https://git.example.com/vendored.git", branch = "main" }
+Greeter = { path = "libs/greeter" }
+```
+
+Each dependency declares exactly one of `path`, `git`, or `github` (an `owner/repo` shorthand for `https://github.com/owner/repo`). Git dependencies accept at most one of `tag`, `branch`, or `rev`. With none, the remote's default branch is used. There is no version solver: a ref resolves to a commit, and one version of a package name exists per build.
+
+`koja deps get` is the only command that touches the network. It resolves each ref to a commit SHA, records the pin in `koja.lock` (committed, so builds are reproducible), caches a mirror clone under `~/.koja/cache`, and copies the pinned tree into the project's `deps/` directory (gitignored and read-only, always regenerable). Dependencies of dependencies resolve transitively, and the root project's lockfile is the only one consulted.
+
+Every other command is offline. `build`, `check`, `run`, `test`, and `doc` verify `koja.lock` against the manifest and re-materialize `deps/` from the local cache when needed. A manifest edit that outdates the lock, or a pin missing from the cache, is a hard error naming the fix rather than a silent fetch:
+
+```
+error: dependency `postgres` is not pinned in koja.lock (koja.toml changed?), run `koja deps get`
+```
+
+`koja deps` prints each dependency with its pin and local state. `koja deps update [name]` re-resolves refs against their remotes (moving a `branch` pin forward). `koja deps clean` removes `deps/`. With `--cache` it also purges the global mirror cache.
+
+Private repositories work through the ambient git configuration: SSH agents for `git@` URLs, credential helpers for https, and `insteadOf` rewrites in CI. Credentials never appear in `koja.toml` or `koja.lock`.
 
 ---
 
@@ -1507,7 +1567,7 @@ Functions:
 `Set<T>` implements `ListLiteral<T>`, so list literal syntax constructs a set when the target type is `Set<T>`:
 
 ```koja
-names: Set<String> = ["alice", "bob", "alice"]  # Set with 3 elements
+names: Set<String> = ["alice", "bob", "alice"]  # Set with 2 elements
 ```
 
 ### String Methods
@@ -1581,6 +1641,12 @@ msg = <<0x01, port::16>>
 
 Segment modifiers: `::N` (bit width), `::N byte` (byte width), `signed`/`unsigned`, `big`/`little`, type annotations (`: Float32`, `: Int16`). Byte-aligned totals produce `Binary`, non-byte-aligned produce `Bits`. String literals can appear as segments for protocol framing.
 
+`Binary`-typed values splice their bytes into the literal, so a framed message builds in one expression. A bare segment is a splice whenever its value is `Binary`-typed. `payload: Binary` spells it out explicitly. Splices take no width or endianness modifiers, and the fixed-width segments around a splice must total whole bytes:
+
+```koja
+frame = <<0x51, (payload.byte_size() + 4)::32, payload>>
+```
+
 #### Pattern Matching
 
 Binary patterns destructure byte sequences in `match`:
@@ -1603,6 +1669,15 @@ Float-extract segments (`x: Float32` in a pattern) are not supported yet. When t
 - `slice(self, range: Range) -> Binary`: copies the inclusive byte range `[start, stop]`. Endpoints clamp to the binary's bounds.
 - `to_bits(self) -> Bits`: zero-cost widening from bytes to bits.
 - `to_string(self) -> Result<String, String.ConversionError>`: attempts to interpret bytes as UTF-8, returning `InvalidUTF8` when decoding fails.
+
+`Binary` implements `Equality` (length plus byte comparison, so `a == b` works) and `Hash`, making it usable as a `Map` key or `Set` element. Its `Debug` rendering is the byte-list form `<<83, 0, 0, 0, 4>>`, truncated with a trailing `...` past 64 bytes.
+
+`Bits` functions:
+
+- `bit_size(self) -> Int`: returns the number of bits.
+- `byte_at(self, index: Int) -> Option<Int>`: returns storage byte `index` as an `Int` in `0..255`, or `Option.None` out of bounds. Bytes hold bits MSB-first with zeroed trailing padding, and the bitstring occupies `ceil(bit_size / 8)` bytes. O(1).
+
+`Bits` also implements `Equality` (bit length plus bit comparison) and `Hash`, so it works as a `Map` key or `Set` element. Its `Debug` rendering is the round-trippable literal form: whole bytes as decimals, then any trailing partial byte as `value::width`, e.g. `<<72, 101, 5::3>>`. Truncation past 64 bytes matches `Binary`.
 
 #### Conversion Functions
 
@@ -1744,6 +1819,49 @@ uri.port.unwrap().print()      # 443
 URI.encode("put it+й").print() # "put%20it+%D0%B9"
 ```
 
+### `Base`
+
+RFC 4648 encoding and decoding: base16 (hex), base64, and url-safe base64. Encoders accept either a `String` (encoded as its UTF-8 bytes) or a `Binary`, and return the encoded text. Decoders take a `String` and return the decoded bytes, or a `Base.Error` (`InvalidCharacter` with the offending character, `InvalidLength`, or `InvalidPadding`).
+
+- `Base.encode16(data: Binary | String) -> String`: lowercase hex, two characters per byte.
+- `Base.decode16(text: String) -> Result<Binary, Base.Error>`: accepts both cases.
+- `Base.encode64(data: Binary | String) -> String`: standard `+/` alphabet, padded with `=`.
+- `Base.decode64(text: String) -> Result<Binary, Base.Error>`
+- `Base.url_encode64(data: Binary | String) -> String`: url-safe `-_` alphabet, padded with `=`.
+- `Base.url_decode64(text: String) -> Result<Binary, Base.Error>`
+
+Base64 decoders accept both padded and unpadded input, but `=` may only appear as final padding:
+
+```koja
+Base.encode64("foobar").print()             # "Zm9vYmFy"
+Base.decode64("Zm9vYg==").unwrap().print()  # <<102, 111, 111, 98>>
+Base.decode64("Zm9vYg").unwrap().print()    # <<102, 111, 111, 98>>
+Base.encode16(<<0, 15, 255>>).print()       # "000fff"
+Base.url_encode64(<<251, 239>>).print()     # "--8="
+```
+
+### `Path`
+
+POSIX path manipulation, modeled on Elixir's `Path`. All functions are pure string operations except `expand`, which reads the current working directory and `HOME`. None of them touch the file system, so `..` resolution is lexical and assumes no symlinks.
+
+- `Path.absolute?(path: String) -> Bool`: `true` when the path starts with `/`.
+- `Path.basename(path: String) -> String`: last component, ignoring a trailing slash. The root `/` has an empty basename.
+- `Path.dirname(path: String) -> String`: directory component. A path without a separator gives `.`, and a trailing slash counts as a separator (`"foo/bar/"` gives `"foo/bar"`).
+- `Path.extname(path: String) -> String`: extension of the last component including the dot, or `""`. A leading-dot file such as `.gitignore` has no extension.
+- `Path.rootname(path: String) -> String`: the path with its extension stripped.
+- `Path.join(parts: List<String>) -> String`: joins segments, collapsing duplicate separators and stripping a trailing slash. Empty segments are skipped, and an empty list gives `""`.
+- `Path.split(path: String) -> List<String>`: path components. An absolute path's first component is `"/"`, and `""` gives an empty list.
+- `Path.expand(path: String) -> String`: absolute path with `.` and `..` resolved. A leading `~` or `~/` expands to `HOME` (left literal when unset), and relative paths resolve against the working directory.
+- `Path.relative_to(path: String, base: String) -> String`: path from `base` to `path`. Two relative paths give a minimal path that may walk up with `..`, two absolute paths only strip a shared prefix, and `path` is returned (normalized) when `base` is not a prefix or the kinds are mixed.
+
+```koja
+Path.join(["/usr", "local/", "bin"]).print()          # "/usr/local/bin"
+Path.extname("archive.tar.gz").print()                # ".gz"
+Path.expand("/foo/bar/../baz").print()                # "/foo/baz"
+Path.split("/foo/bar").print()                        # ["/", "foo", "bar"]
+Path.relative_to("tmp/foo/bar", "tmp/bat").print()    # "../foo/bar"
+```
+
 ### `Enumeration<T>` Protocol
 
 ```koja
@@ -1763,7 +1881,7 @@ protocol Equality
 end
 ```
 
-Powers the `==` and `!=` operators. Implemented for all numeric types, `Bool`, and `String`.
+Powers the `==` and `!=` operators. Implemented for all numeric types, `Bool`, `String`, `Binary`, and `Bits`.
 
 ### `Hash` Protocol
 
@@ -1773,7 +1891,7 @@ protocol Hash
 end
 ```
 
-Required for keys in `Map<K, V>` and elements in `Set<T>`. Implemented for all numeric types, `Bool`, and `String`. Integers use SplitMix64, and strings use FNV-1a.
+Required for keys in `Map<K, V>` and elements in `Set<T>`. Implemented for all numeric types, `Bool`, `String`, `Binary`, and `Bits`. Integers use SplitMix64, and strings and binaries use FNV-1a.
 
 ### `Bitwise` Protocol
 
@@ -1810,7 +1928,7 @@ protocol Debug
 end
 ```
 
-`format` returns a round-trippable string representation of the value. `print` writes that string to stdout (via `IO.puts`). The receiver stays live and the call returns `()`. `inspect` is the chainable variant. It prints and returns `self`, useful for tap-style debugging in the middle of an expression. The compiler auto-derives `Debug` for all types: primitives via intrinsics, enums as `VariantName` or `VariantName(payload)`, structs as `TypeName{field: value, ...}`. Generic types derive the same full field-by-field body as concrete ones. Fields whose type has no meaningful rendering (`CPtr<T>`, `Binary`, `Bits`, function values) render as a literal `"..."` placeholder. Implementing `format` is enough to get `print` and `inspect` for free. Custom implementations can override the derived one via `impl Debug for MyType`.
+`format` returns a round-trippable string representation of the value. `print` writes that string to stdout (via `IO.puts`). The receiver stays live and the call returns `()`. `inspect` is the chainable variant. It prints and returns `self`, useful for tap-style debugging in the middle of an expression. The compiler auto-derives `Debug` for all types: primitives via intrinsics, enums as `VariantName` or `VariantName(payload)`, structs as `TypeName{field: value, ...}`. Generic types derive the same full field-by-field body as concrete ones. Fields whose type has no meaningful rendering (`CPtr<T>`, function values) render as a literal `"..."` placeholder. Implementing `format` is enough to get `print` and `inspect` for free. Custom implementations can override the derived one via `impl Debug for MyType`.
 
 `Debug.format` for `String` is round-trippable: it wraps the contents in double quotes and escapes `\`, `"`, `\n`, `\r`, `\t`. That means `.print()` shows top-level strings quoted, and aggregates render their `String` fields quoted too:
 
@@ -2042,23 +2160,28 @@ Doc strings support Markdown and are rendered by `koja doc`.
 
 ### `@test`
 
-Marks a function as a test case. `koja test` discovers and runs all `@test`-annotated functions in `src/` and `test/` directories.
+Marks a function as a test case. `koja test` discovers and runs all
+`@test`-annotated functions in `src/` and `test/` directories. Test
+functions return `Result<Bool, String>`. Any `Result.Ok` passes, while
+`Result.Err(message)` fails with the given message.
 
 ```koja
-@test
-fn test_addition
-  result = add(2, 3)
-  assert(result == 5, "expected 5")
-end
+struct AdditionTest
+  @test "adds two integers"
+  fn test_addition -> Result<Bool, String>
+    result = add(2, 3)
 
-@test "handles negative numbers"
-fn test_negative
-  result = add(-1, 1)
-  assert(result == 0, "expected 0")
+    unless result == 5
+      return Result.Err("expected 5, got #{result}")
+    end
+
+    Result.Ok(true)
+  end
 end
 ```
 
-An optional string after `@test` provides a description printed during the test run. Tests abort on first failure.
+An optional string after `@test` provides a description printed during the
+test run. The runner reports every discovered test even when some fail.
 
 ---
 
@@ -2071,6 +2194,7 @@ An optional string after `@test` provides a description printed during the test 
 | `koja run`    | Build and execute in one step                     |
 | `koja check`  | Type check without compiling                      |
 | `koja test`   | Run `@test`-annotated functions                   |
+| `koja deps`   | Fetch and inspect dependencies (`get`, `update`)  |
 | `koja format` | Opinionated code formatter (`--write`, `--check`) |
 | `koja doc`    | Generate static HTML documentation                |
 | `koja lex`    | Dump tokens                                       |
@@ -2092,6 +2216,7 @@ The `koja.toml` file defines the project configuration:
 ```toml
 [project]
 entry = "App"
+koja = "0.15"
 name = "my_app"
 version = "0.1.0"
 ```
@@ -2103,6 +2228,9 @@ Fields:
 - `entry`: the type implementing `Process` that the program starts (required for `build`/`run`).
 - `src`: source directories (default `["src"]`).
 - `test`: test directories (default `["test"]`).
+- `koja`: minimum compiler version, e.g. `koja = "0.15.0"`. A bare version, no operators. An older compiler refuses the package (and any package depending on it) with an error naming both versions.
+
+A `[dependencies]` table declares path and git dependencies; see [Dependencies](#dependencies).
 
 ### Language Server (LSP)
 
