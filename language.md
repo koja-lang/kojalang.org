@@ -3,7 +3,7 @@ layout: docs
 title: Language Reference
 description: The complete Koja language reference covering syntax, types, pattern matching, value semantics, protocols, concurrency, the standard library, and C FFI.
 permalink: /language/
-koja_version: 0.15.1
+koja_version: 0.15.3
 source_url: https://github.com/koja-lang/koja/blob/main/LANGUAGE.md
 toc_depth: 2
 ---
@@ -52,9 +52,9 @@ x = 42  # inline comment
 ### Keywords
 
 ```
-alias, break, cond, const, else, end, enum, false, fn, for,
-if, impl, in, loop, match, not, priv, protocol,
-receive, return, self, spawn, struct, true, type, unless, when
+after, alias, break, cond, const, else, end, enum, extend, false,
+fn, for, if, impl, in, loop, match, not, priv, protocol, receive,
+return, self, spawn, struct, true, type, unless, when, while
 ```
 
 `and` and `or` are operator-identifiers, not reserved keywords. They act as infix boolean operators in expressions (`a and b`, `x or y`) but can also be used freely as method names, function names, or field names (e.g., `option.or(default)`).
@@ -243,9 +243,12 @@ fn find(items: List<Int32>, target: Int32) -> Bool
       return true
     end
   end
+
   false
 end
 ```
+
+`return` is a statement. It cannot appear inside another expression.
 
 ### Parameters
 
@@ -306,9 +309,12 @@ loop
   if i >= 5
     break
   end
+
   i += 1
 end
 ```
+
+`break` is a statement. It cannot appear inside another expression.
 
 ### `for` ... `in`
 
@@ -896,7 +902,7 @@ measure = fn (data: String) -> Int data.length() end
 
 ### Short Closures
 
-Short closures use `param -> expr` syntax with parameter types inferred from the calling context:
+Short closures use `param -> expr` syntax as direct call arguments, with parameter types inferred from the call:
 
 ```koja
 option.map(x -> x + 1)
@@ -904,7 +910,7 @@ list.filter(n -> n > 3)
 names.map(name -> name.upcase())
 ```
 
-Works at inline call sites including generic methods. For multi-parameter or multi-statement closures, use the block form above.
+Both positional and named arguments accept the short form, including arguments to generic functions. Use the block form outside a call argument or when the closure needs multiple parameters or statements.
 
 ### Capture Semantics
 
@@ -949,7 +955,7 @@ Koja uses value semantics. Every binding, parameter, return, and field is an ind
 
 ### Copy Cost
 
-All types copy on assignment. Numeric primitives, `Bool`, `()`, and function pointers copy bit-for-bit. `String`, `Binary`, `Bits`, `List`, `Map`, `Set`, structs, and enums are heap-backed, but the copy is cheap. The block is reference-counted and shared, with a copy made lazily only if a shared value is mutated (copy-on-write). The result is always an independent value:
+All types copy on assignment. Numeric primitives, `Bool`, `()`, and function pointers copy bit-for-bit. `String`, `Binary`, `Bits`, `List`, `Map`, `Set`, structs, and enums are heap-backed, but the copy is cheap: the underlying memory is shared, so assigning or passing a value copies nothing. Mutation works on a fresh copy, so no binding ever observes another's changes. (Today mutation always makes that copy. A future compiler may skip it when nothing else shares the value, with no change in behavior.) The result is always an independent value:
 
 ```koja
 a = 42
@@ -1370,7 +1376,7 @@ The following types and functions are available in every file with no alias need
 > **Note:** Koja uses value semantics. Every binding, parameter,
 > return, and field is an independent value. Assigning or passing a
 > value already yields an independent copy (cheaply, via reference-
-> counted copy-on-write under the hood), so there is no `clone()`:
+> counted sharing under the hood), so there is no `clone()`:
 > just assign or pass the value.
 
 ### `Kernel`
