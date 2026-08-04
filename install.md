@@ -3,7 +3,7 @@ layout: docs
 title: Installation
 description: Install prebuilt Koja binaries with asdf or release tarballs, or build the compiler from source on macOS and Linux.
 permalink: /install/
-koja_version: 0.15.1
+koja_version: 0.16.0
 source_url: https://github.com/koja-lang/koja/blob/main/INSTALLING.md
 ---
 
@@ -27,12 +27,12 @@ koja --version
 Grab the tarball and `.sha256` sidecar for your platform from the [releases page](https://github.com/koja-lang/koja/releases), then:
 
 ```sh
-curl -fLO https://github.com/koja-lang/koja/releases/download/v0.15.1/koja-v0.15.1-darwin-arm64.tar.gz
-curl -fLO https://github.com/koja-lang/koja/releases/download/v0.15.1/koja-v0.15.1-darwin-arm64.tar.gz.sha256
-shasum -a 256 -c koja-v0.15.1-darwin-arm64.tar.gz.sha256
-tar -xzf koja-v0.15.1-darwin-arm64.tar.gz
+curl -fLO https://github.com/koja-lang/koja/releases/download/v0.16.0/koja-v0.16.0-darwin-arm64.tar.gz
+curl -fLO https://github.com/koja-lang/koja/releases/download/v0.16.0/koja-v0.16.0-darwin-arm64.tar.gz.sha256
+shasum -a 256 -c koja-v0.16.0-darwin-arm64.tar.gz.sha256
+tar -xzf koja-v0.16.0-darwin-arm64.tar.gz
 mkdir -p ~/.local/bin
-cp koja-v0.15.1-darwin-arm64/{koja,koja-lsp} ~/.local/bin/
+cp koja-v0.16.0-darwin-arm64/{koja,koja-lsp} ~/.local/bin/
 ```
 
 (Use `sha256sum -c` on Linux, and substitute `linux-x86_64` or `linux-arm64` for `darwin-arm64`.)

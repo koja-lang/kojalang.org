@@ -9,8 +9,9 @@ class KojaLexer < Rouge::RegexLexer
   filenames "*.koja", "*.kojs"
 
   KEYWORDS = %w[
-    alias break cond const else end enum fn for if impl in loop match
-    priv protocol receive return spawn struct type unless when
+    after alias as break cond const else end enum extend fail fn for if
+    impl in loop match priv protocol receive rescue return spawn struct
+    try type unless when while
   ].freeze
 
   OPERATOR_WORDS = %w[and or not].freeze
@@ -20,7 +21,7 @@ class KojaLexer < Rouge::RegexLexer
     rule %r/"""/, Str::Double, :heredoc
     rule %r/"/, Str::Double, :string
     rule %r/@[a-z_]+/, Name::Decorator
-    rule %r/\b(?:#{KEYWORDS.join("|")})\b/, Keyword
+    rule %r/\b(?:#{KEYWORDS.join("|")})\b(?![?!])/, Keyword
     rule %r/\b(?:#{OPERATOR_WORDS.join("|")})\b/, Operator::Word
     rule %r/\b(?:true|false)\b/, Keyword::Constant
     rule %r/\bself\b/, Name::Builtin::Pseudo
@@ -31,7 +32,7 @@ class KojaLexer < Rouge::RegexLexer
     rule %r/\b[A-Z][A-Za-z0-9_]*\b/, Name::Class
     rule %r/[a-z_][A-Za-z0-9_]*\??(?=\s*\()/, Name::Function
     rule %r/[a-z_][A-Za-z0-9_]*\??/, Name
-    rule %r/->|<>|<=|>=|==|!=|[+\-*\/%]=?|[<>=?]|\|/, Operator
+    rule %r/->|<>|<=|>=|==|!=|[+\-*\/%]=?|[<>=?!]|\|/, Operator
     rule %r/[(){}\[\],.:]/, Punctuation
     rule %r/\s+/, Text::Whitespace
   end
