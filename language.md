@@ -3,7 +3,7 @@ layout: docs
 title: Language Reference
 description: The complete Koja language reference covering syntax, types, pattern matching, error handling, value semantics, protocols, concurrency, the standard library, and C FFI.
 permalink: /language/
-koja_version: 0.16.0
+koja_version: 0.17.0
 source_url: https://github.com/koja-lang/koja/blob/main/LANGUAGE.md
 toc_depth: 2
 ---
@@ -20,12 +20,12 @@ Koja is a statically typed, compiled language targeting native binaries via LLVM
 - [Variables and Constants](#variables-and-constants): Assignment, Type Annotations, Compound Assignment, Constants
 - [Functions](#functions): Declaration, Private Declarations, `return`, Parameters
 - [Control Flow](#control-flow): `if`/`else`, `unless`, `while`, `loop`/`break`, `for`...`in`, Ternary
-- [Types](#types): Primitives, Numeric Widening, Arithmetic Faults, Unit, Strings, Structs, Enums, Nested Types, Union Types, Tuples, Generics
+- [Types](#types): Primitives, Builtin Declarations, Numeric Widening, Arithmetic Faults, Unit, Strings, Structs, Enums, Nested Types, Union Types, Tuples, Generics
 - [Pattern Matching](#pattern-matching): `match`, OR Patterns, `cond`
 - [Error Handling](#error-handling): `! E` Signatures, `fail`, `try`, Error Unions, `rescue`
 - [Closures and Function Types](#closures-and-function-types): Block Closures, Short Closures, Capture Semantics, Function Types
 - [Value Semantics](#value-semantics): Rules, Copy Cost, Field Access
-- [Protocols](#protocols): Behavioral Contracts, Static Dispatch
+- [Protocols](#protocols): Behavioral Contracts, Impl Blocks, Static Dispatch
 - [Packages](#packages): Transparent Files, Visibility, Aliases, Dependencies
 - [Concurrency](#concurrency): Processes, `spawn`/`receive`, `Ref`, `ReplyTo`, `Task`
 - [Standard Library](#standard-library): Built-in Functions, Core Types, Collections, String Methods, Binary/Bits, File I/O, Parsing, URI, Base, Path, Protocols
@@ -53,10 +53,10 @@ x = 42  # inline comment
 ### Keywords
 
 ```
-after, alias, break, cond, const, else, end, enum, extend, fail,
-false, fn, for, if, impl, in, loop, match, not, priv, protocol,
-receive, rescue, return, self, spawn, struct, true, try, type,
-unless, when, while
+after, alias, break, builtin, cond, const, else, end, enum, extend,
+fail, false, fn, for, if, impl, in, loop, match, not, priv,
+protocol, receive, rescue, return, self, spawn, struct, true, try,
+type, unless, when, while
 ```
 
 `and` and `or` are operator-identifiers, not reserved keywords. They act as infix boolean operators in expressions (`a and b`, `x or y`) but can also be used freely as method names, function names, or field names (e.g., `option.or(default)`).
@@ -198,6 +198,8 @@ const EMPTY: Option<Int> = Option.None
 ```
 
 Constants are inlined at every usage site.
+
+Within a package, constants are read by bare name (`MAX`). Constants from the auto-imported `Global` package also resolve bare (`STDOUT`). Public constants in other packages are read through the package namespace (`Mathlib.PI`).
 
 ---
 
@@ -412,6 +414,30 @@ therefore a true equivalence relation, and comparisons are total.
 
 All types have value semantics. Assignment produces an independent copy. Numeric primitives and `Bool` copy bit-for-bit. `String`, `Binary`, `Bits`, `List`, `Map`, `Set`, structs, and enums copy their contents. The distinction is only one of cost, never of semantics.
 
+### Builtin Declarations
+
+The compiler owns the representation of the primitive types and the
+core collections (`List<T>`, `Map<K, V>`, `Set<T>`, `CPtr<T>`). The
+stdlib declares each one with the `builtin` keyword, which anchors its
+`@doc` comment and its methods:
+
+```koja
+@doc """
+A UTF-8 string.
+"""
+builtin String
+  @intrinsic
+  fn length(self) -> Int
+end
+```
+
+A `builtin` body admits only functions, never fields or nested type
+bodies. Builtin types are always public, and they cannot be
+constructed with struct-literal syntax. Declaring a builtin name the
+compiler does not provide is a compile error, so user code cannot
+mint new builtins. `impl` and `extend` blocks target builtins the
+same way they target structs and enums.
+
 ### Numeric Widening
 
 Sized numeric values widen implicitly into their hub type, and only into their hub type. `Int8`, `Int16`, `Int32`, `UInt8`, `UInt16`, and `UInt32` widen to `Int` (signed sources sign-extend, unsigned sources zero-extend). `Float32` widens to `Float`. The conversion is always lossless.
@@ -535,6 +561,8 @@ struct Point
 end
 ```
 
+The header can also declare protocol conformances (`struct Point: Display, Hash`). See [Protocols](#protocols).
+
 #### Construction
 
 ```koja
@@ -549,6 +577,44 @@ config = Config{
   port: 8080,
   debug: false,
 }
+```
+
+#### Default Field Values
+
+A field can declare a default value. A construction that omits the field uses the default:
+
+```koja
+struct Config
+  host: String = "localhost"
+  port: Int = 5432
+  name: String
+end
+
+c = Config{name: "app"}   # host and port fill from the defaults
+Config{}                  # error: `name` has no default
+```
+
+Default values are limited to side-effect-free expressions: literals (no interpolation), negated numerics, unit enum variants, binary literals, and struct, list, map, or set literals of those. The compiler checks each default against the field type at the declaration. A default cannot use an `alias` shorthand. Write the qualified name.
+
+The default expression evaluates at each construction that omits the field. This makes generic defaults work: a `List<T>` field can default to `[]` and an `Option<T>` field to `Option.None`:
+
+```koja
+struct Stack<T>
+  items: List<T> = []
+  top: Option<T> = Option.None
+end
+
+s: Stack<Int> = Stack{}
+```
+
+Struct variants of enums take defaults the same way:
+
+```koja
+enum Shape
+  Rect{width: Int, height: Int = 2}
+end
+
+Shape.Rect{width: 4}   # height fills with 2
 ```
 
 #### Field Access
@@ -685,6 +751,8 @@ end
 d = Direction.North
 s = Shape.Circle(5)
 ```
+
+Struct-variant fields can declare default values. See [Default Field Values](#default-field-values).
 
 Within a `match` arm on the same enum, the type prefix can be omitted for unit variants:
 
@@ -882,6 +950,8 @@ end
 
 entry = Entry{key: "answer", value: 42}
 ```
+
+Generic struct literals like `Entry{key: k, value: v}` infer their type parameters from the field values when each type parameter appears in at least one field. A type annotation on the binding is only required when no field uniquely binds a parameter, for example a struct that only mentions some of its parameters in its fields' types.
 
 #### Generic Enums
 
@@ -1176,6 +1246,22 @@ end
 apply(5, fn (n: Int32) -> Int32 n * 2 end).print()
 ```
 
+### Named Functions as Values
+
+A named function's bare name is a function value. Functions in other packages are reached through the package namespace:
+
+```koja
+fn double(x: Int) -> Int
+  x * 2
+end
+
+f = double          # same package
+g = Mathlib.square  # another package
+apply(5, f).print()
+```
+
+Generic functions cannot be referenced as values. There is no call site to infer their type arguments from.
+
 ---
 
 ## Value Semantics
@@ -1232,17 +1318,47 @@ w.name.print()              # "HELLO"
 
 ## Protocols
 
-Protocols define behavioral contracts. Types implement protocols via `impl Protocol for Type`.
+Protocols define behavioral contracts. A struct or enum lists its protocols after a colon in its header, and the functions in its body satisfy the contract:
 
 ```koja
 protocol Greeter
   fn greet(self) -> String
 end
 
-struct Cat
+struct Cat: Greeter, Description
   name: String
-end
 
+  fn greet(self) -> String
+    "meow, I'm #{self.name}"
+  end
+
+  fn describe(self) -> String
+    "a cat named #{self.name}"
+  end
+end
+```
+
+The compiler checks completeness and signature compatibility, and synthesizes any default-bodied methods the type omits. If the body has a function whose name is a near miss of an omitted default, the compiler warns about the likely typo. Entry processes are declared this way (`struct App: Process<(), (), ()>`, see [Packages](#packages)). Protocol declarations accept `@doc` and `@deprecated`.
+
+`Debug` and `Equality` are auto-derived for every type, so listing one is only an override. It suppresses the derived implementation, and the body must supply `format` / `eq`:
+
+```koja
+struct Token: Debug
+  secret: String
+
+  fn format(self) -> String
+    "Token(redacted)"
+  end
+end
+```
+
+`Self` inside a protocol is sugar for an implicit first type parameter, filled in by each conforming type. A method signature that mentions `Self` resolves it to the concrete implementer. User-declared protocol type parameters (e.g. `protocol Eq<T>`) follow the `Self` slot, and the name `Self` cannot be declared explicitly.
+
+### Impl Blocks
+
+A conformance can also live in a separate `impl Protocol for Type` block:
+
+```koja
 impl Greeter for Cat
   fn greet(self) -> String
     "meow, I'm #{self.name}"
@@ -1250,9 +1366,9 @@ impl Greeter for Cat
 end
 ```
 
-The compiler validates completeness (all protocol functions must be implemented) and signature compatibility. `priv fn` helpers are allowed in impl blocks. `@doc` and `@deprecated` annotations are supported on protocol declarations.
+The two forms are equivalent and check identically. Declaring the same conformance in both is a duplicate-conformance error.
 
-`Self` inside a protocol declaration is syntactic sugar for an implicit first type parameter on the protocol. It is the slot every conforming type fills in via `impl Protocol for ConcreteType`. Methods that mention `Self` in their signature (return type, non-receiver param) treat it as that synthetic param. In an `impl Protocol for ConcreteType` block, the synthetic param resolves to `ConcreteType` and the method's `Self` ends up typed as the concrete implementer. User-declared protocol type parameters (e.g. `protocol Eq<T>`) are appended after the synthetic `Self` slot. The name `Self` is reserved on protocols and cannot also be declared explicitly.
+The impl block is the isolated-contract form. It rejects public functions the protocol does not declare (`priv fn` helpers are allowed). Use it when a conformance's methods would crowd the type body.
 
 ### Trait Bounds
 
@@ -1264,7 +1380,7 @@ fn say_hello<T: Greeter>(animal: T) -> String
 end
 ```
 
-Multiple bounds use `&` (the protocol composition operator, complementing `|` for union types):
+Multiple bounds use `&`. It is valid only in bound lists, not in general type positions:
 
 ```koja
 fn describe_and_greet<T: Greeter & Description>(animal: T) -> String
@@ -1302,10 +1418,7 @@ end
 alias Process.Step
 alias Process.StopReason
 
-struct App
-end
-
-impl Process<(), (), ()> for App
+struct App: Process<(), (), ()>
   fn start(config: ()) -> Self ! StopReason
     App{}
   end
@@ -1321,7 +1434,7 @@ impl Process<(), (), ()> for App
 end
 ```
 
-Other packages (the qualified standard library and dependencies) are reached through their package namespace: `JSON.Decoder`, `Net.TCPSocket`, `HTTP.get(...)`.
+Other packages (the qualified standard library and dependencies) are reached through their package namespace: `JSON.Decoder`, `Net.TCPSocket`, `HTTP.get(...)`, `Mathlib.PI`.
 
 A package has two names. The manifest `name` is its lowercase snake_case identity, used for the `deps/` directory, dependency keys, lockfile entries, and the default binary name. Its **namespace** is the PascalCase name code uses for qualified access, derived from `name` (`my_app` -> `MyApp`). When the derivation isn't right (acronyms, unusual casing), declare it explicitly:
 
@@ -1474,11 +1587,9 @@ enum CounterMsg
   Decrement
 end
 
-struct Counter
+struct Counter: Process<Counter, CounterMsg, Int>
   count: Int
-end
 
-impl Process<Counter, CounterMsg, Int> for Counter
   fn start(config: Counter) -> Self ! StopReason
     config
   end
@@ -1698,28 +1809,6 @@ err.or(99).print()        # 99
 ```
 
 For unwrap-or-propagate control flow, prefer `try` / `fail` / `rescue` over combinator chains. See [Error Handling](#error-handling).
-
-### `Pair<A, B>`
-
-`Pair` remains available for compatibility. Prefer an anonymous tuple
-for new positional two-value groupings.
-
-```koja
-struct Pair<A, B>
-  first: A
-  second: B
-end
-```
-
-Fields: `first`, `second`.
-
-```koja
-p: Pair<Int, String> = Pair{first: 10, second: "hello"}
-p.first.print()    # 10
-p.second.print()   # hello
-```
-
-Generic struct literals like `Pair{first: x, second: y}` infer their type parameters from the field values when each field's expected type-param appears in at least one field. A type annotation on the binding (`p: Pair<Int, String> = ...`) is only required when no positional field uniquely binds a parameter, for example a struct that only mentions some of its parameters in its fields' types.
 
 ### `Range`
 
@@ -2495,19 +2584,19 @@ test run. The runner reports every discovered test even when some fail.
 
 ## Tooling
 
-| Command       | Description                                       |
-| ------------- | ------------------------------------------------- |
-| `koja new`    | Scaffold a new project directory                  |
-| `koja build`  | Compile to a native binary via LLVM               |
-| `koja run`    | Build and execute in one step                     |
-| `koja check`  | Type check without compiling                      |
-| `koja test`   | Run `@test`-annotated functions                   |
-| `koja tasks`  | List tasks from the project, deps, and toolchain  |
-| `koja deps`   | Fetch and inspect dependencies (`get`, `update`)  |
-| `koja format` | Opinionated code formatter (`--write`, `--check`) |
-| `koja doc`    | Generate static HTML documentation                |
-| `koja lex`    | Dump tokens                                       |
-| `koja parse`  | Dump AST                                          |
+| Command       | Description                                      |
+| ------------- | ------------------------------------------------ |
+| `koja new`    | Scaffold a new project directory                 |
+| `koja build`  | Compile to a native binary via LLVM              |
+| `koja run`    | Build and execute in one step                    |
+| `koja check`  | Type check without compiling                     |
+| `koja test`   | Run `@test`-annotated functions                  |
+| `koja tasks`  | List tasks from the project, deps, and toolchain |
+| `koja deps`   | Fetch and inspect dependencies (`get`, `update`) |
+| `koja format` | Opinionated code formatter (`--check` for CI)    |
+| `koja doc`    | Generate static HTML documentation               |
+| `koja lex`    | Dump tokens                                      |
+| `koja parse`  | Dump AST                                         |
 
 ### Project Scaffolding
 
@@ -2525,7 +2614,7 @@ The `koja.toml` file defines the project configuration:
 ```toml
 [project]
 entry = "App"
-koja = "0.16"
+koja = "0.17"
 name = "my_app"
 version = "0.1.0"
 ```
@@ -2538,7 +2627,7 @@ Fields:
 - `entry`: the type implementing `Process` that the program starts (required for `build`/`run`).
 - `src`: source directories (default `["src"]`).
 - `test`: test directories (default `["test"]`).
-- `koja`: minimum compiler version, e.g. `koja = "0.16.0"`. A bare version, no operators. An older compiler refuses the package (and any package depending on it) with an error naming both versions.
+- `koja`: minimum compiler version, e.g. `koja = "0.17.0"`. A bare version, no operators. An older compiler refuses the package (and any package depending on it) with an error naming both versions.
 
 A `[dependencies]` table declares path and git dependencies (see [Dependencies](#dependencies)), and a `[tasks]` table exports custom CLI tasks (see [Custom Tasks](#custom-tasks)).
 
@@ -2584,4 +2673,4 @@ Real-time diagnostics, document formatting, hover (type signatures + `@doc`), an
 
 ### Formatter
 
-Zero-config, opinionated. `koja format --write` reformats in place, `koja format --check` exits non-zero if formatting differs. The formatter handles escape re-encoding for round-trip correctness and preserves annotations.
+Zero-config, opinionated. `koja format` reformats in place (the whole project with no arguments, like `mix format`), and `koja format --check` exits non-zero if formatting differs. The formatter handles escape re-encoding for round-trip correctness and preserves annotations.

@@ -9,9 +9,9 @@ class KojaLexer < Rouge::RegexLexer
   filenames "*.koja", "*.kojs"
 
   KEYWORDS = %w[
-    after alias as break cond const else end enum extend fail fn for if
-    impl in loop match priv protocol receive rescue return spawn struct
-    try type unless when while
+    after alias as break builtin cond const else end enum extend fail fn
+    for if impl in loop match priv protocol receive rescue return spawn
+    struct try type unless when while
   ].freeze
 
   OPERATOR_WORDS = %w[and or not].freeze
