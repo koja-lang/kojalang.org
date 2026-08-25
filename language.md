@@ -3,7 +3,7 @@ layout: docs
 title: Language Reference
 description: The complete Koja language reference covering syntax, types, pattern matching, error handling, value semantics, protocols, concurrency, the standard library, and C FFI.
 permalink: /language/
-koja_version: 0.17.3
+koja_version: 0.18.0
 source_url: https://github.com/koja-lang/koja/blob/main/LANGUAGE.md
 toc_depth: 2
 ---
@@ -27,7 +27,7 @@ Koja is a statically typed, compiled language targeting native binaries via LLVM
 - [Error Handling](#error-handling): `! E` Signatures, `fail`, `try`, Error Unions, `rescue`
 - [Protocols](#protocols): Behavioral Contracts, Impl Blocks, Static Dispatch
 - [Packages](#packages): Transparent Files, Visibility, Aliases, Dependencies
-- [Concurrency](#concurrency): `Task`, Processes, Lifecycle, `Ref`, `ReplyTo`, `spawn`/`receive`
+- [Concurrency](#concurrency): `Task`, Processes, Lifecycle, `Ref`, `ReplyTo`, `spawn`/`receive`, Runtime Observability
 - [Annotations](#annotations): `@deprecated`, `@doc`, `@test`
 - [C FFI](#c-ffi): `@extern "C"`, `CPtr<T>`, `CString`
 - [Standard Library](#standard-library): Core Types, Collections, String Functions, Binary/Bits, File I/O, Parsing, URI, Base, Path, Protocols
@@ -232,6 +232,39 @@ end
 
 There is no parameter-passing modifier. Every parameter is a value.
 
+### Default Parameters
+
+A parameter can declare a default value with `=`. Required parameters must come before defaulted ones:
+
+```koja
+fn greet(name: String, punctuation: String = "!") -> String
+  name <> punctuation
+end
+
+greet("Koja").print()
+greet("Koja", "?").print()
+```
+
+A function with defaults is callable at every arity from its required parameter count through its total parameter count. The compiler builds adapter functions for omitted trailing arguments.
+
+Default expressions are independent callee-scope expressions. They cannot refer to `self` or any parameter in the same declaration. Each omitted default evaluates at every call.
+
+Protocol declarations own defaults. Implementations inherit the callable arities and cannot repeat or redefine them.
+
+Two declarations with the same qualified name collide when they share an arity, even if the parameter types differ. Separate declarations may share a name only when their arities differ, and their default arity ranges must not overlap:
+
+```koja
+fn pick(x: Int) -> Int
+  x
+end
+
+fn pick(x: Int, y: Int) -> Int
+  x + y
+end
+```
+
+See [Function Arity](https://github.com/koja-lang/koja/blob/main/design/FUNCTION-ARITY.md) for the full model.
+
 ### `return`
 
 Explicit `return` is available for early exits:
@@ -369,19 +402,23 @@ apply(5, fn (n: Int32) -> Int32 n * 2 end).print()
 
 ### Named Functions as Values
 
-A named function's bare name is a function value. Functions in other packages are reached through the package namespace:
+A named function reference uses `&name/arity`. The arity includes `self`.
 
 ```koja
 fn double(x: Int) -> Int
   x * 2
 end
 
-f = double # same package
-g = Mathlib.square # another package
+f = &double/1 # same package
+g = &Mathlib.square/1 # another package
+h = &Counter.increment/2 # unbound instance function: fn (Counter, Int) -> Counter
+t = &Point.translate/3 # static method: fn (Point, Int, Int) -> Point
 apply(5, f).print()
 ```
 
-Generic functions cannot be referenced as values. There is no call site to infer their type arguments from.
+Every named function value uses mandatory `&name/arity`, including a single-arity function. A bare function name is not a function value.
+
+The arity selects one exact overload, including an adapter for default parameters. Generic functions cannot be referenced directly because there is no call site to infer their type arguments. Wrap a generic or adapted call in a closure.
 
 ---
 
@@ -441,7 +478,7 @@ end
 
 ### `for` ... `in`
 
-Iterates over any type implementing the `Enumeration<T>` protocol:
+Iterates over any type that implements `Enumeration<T, Cursor>`:
 
 ```koja
 list: List<Int32> = List.new()
@@ -454,7 +491,9 @@ for item in list
 end
 ```
 
-The loop variable is bound directly to each element. No unwrapping needed.
+The loop variable binds directly to each element. The source stays unchanged while a separate cursor advances.
+
+`for` requires a declared `Enumeration` conformance. Functions named `cursor` and `next` do not provide structural conformance.
 
 ### Ternary
 
@@ -1348,9 +1387,9 @@ struct Cat: Greeter, Description
 end
 ```
 
-The compiler checks completeness and signature compatibility, and synthesizes any default-bodied functions the type omits. If the body has a function whose name is a near miss of an omitted default, the compiler warns about the likely typo. Entry processes are declared this way (`struct App: Process<(), (), ()>`, see [Packages](#packages)). Protocol declarations accept `@doc` and `@deprecated`.
+The compiler checks completeness and signature compatibility, and synthesizes any default-bodied functions the type omits. If the body has a function whose name is a near miss of an omitted default, the compiler warns about the likely typo. Protocol methods may declare default parameters. Implementations inherit those callable arities and cannot repeat the defaults. Entry processes are declared this way (`struct App: Process<(), (), ()>`, see [Packages](#packages)). Protocol declarations accept `@doc` and `@deprecated`.
 
-`Debug` and `Equality` are auto-derived for every type, so listing one is only an override. It suppresses the derived implementation, and the body must supply `format` / `eq`:
+`Debug` and `Equality` are auto-derived for every type, so listing one is only an override. It suppresses the derived implementation, and the body must supply `format` / `equals?`:
 
 ```koja
 struct Token: Debug
@@ -1380,6 +1419,52 @@ The two forms are equivalent and check identically. Declaring the same conforman
 
 The impl block is the isolated-contract form. It rejects public functions the protocol does not declare (`priv fn` helpers are allowed). Use it when a conformance's functions would crowd the type body.
 
+The protocol and the type can both come from other packages. A serialization package can implement its own `Encodable` for `String`, and your application can implement that same `Encodable` for a struct that a third-party package defines.
+
+```koja
+protocol Encodable
+  fn to_wire(self) -> String
+end
+
+impl Encodable for String
+  fn to_wire(self) -> String
+    self
+  end
+end
+```
+
+The compiler checks the whole program for conflicts. If two packages implement the same protocol for the same type, or give one type two functions with the same name, the build fails with an error at the conflicting declaration.
+
+A protocol can also be implemented for one concrete instantiation of a generic type, even a generic type from another package:
+
+```koja
+impl Encodable for List<Int>
+  fn to_wire(self) -> String
+    "#{self.length()} ints"
+  end
+end
+```
+
+The conformance covers `List<Int>` only. A bound like `T: Encodable` accepts `List<Int>` and rejects `List<String>`. A generic type can carry at most one impl per protocol, because every instantiation shares one set of function names.
+
+An impl can also keep the target's type parameters open, with an optional condition on each. The condition uses the same inline bound syntax as function generics:
+
+```koja
+impl Encodable for List<T: Encodable>
+  fn to_wire(self) -> String
+    result = "["
+
+    for item in self
+      result = result <> item.to_wire()
+    end
+
+    result <> "]"
+  end
+end
+```
+
+The conformance covers every `List` whose element type is itself `Encodable`, at any nesting depth. `List<Int>` qualifies once `Int` does, and so does `List<List<Int>>`. Inside the body, the condition is in force, so `item.to_wire()` dispatches through it. Without a condition (`impl Encodable for List<T>`), the conformance covers every instantiation. Conditions attach to the target's own type parameters, so a concrete argument cannot carry one (`impl Encodable for List<Int: Encodable>` is an error).
+
 ### Trait Bounds
 
 Generic type parameters can be constrained to types implementing specific protocols using `:` syntax:
@@ -1395,6 +1480,20 @@ Multiple bounds use `&`. It is valid only in bound lists, not in general type po
 ```koja
 fn describe_and_greet<T: Greeter & Description>(animal: T) -> String
   animal.describe() <> " says " <> animal.greet()
+end
+```
+
+Generic protocol bounds can include type arguments. The arguments can use other type parameters from the same declaration:
+
+```koja
+fn count_items<T, Cursor, E: Enumeration<T, Cursor>>(source: E) -> Int
+  count = 0
+
+  for _ in source
+    count += 1
+  end
+
+  count
 end
 ```
 
@@ -1444,7 +1543,7 @@ struct App: Process<(), (), ()>
 end
 ```
 
-Other packages (the qualified standard library and dependencies) are reached through their package namespace: `JSON.Decoder`, `Net.TCPSocket`, `HTTP.get(...)`, `Mathlib.PI`.
+Other packages (the qualified standard library and dependencies) are reached through their package namespace: `JSON.decode(...)`, `Net.TCPSocket`, `HTTP.get(...)`, `Mathlib.PI`.
 
 A package has two names. The manifest `name` is its lowercase snake_case identity, used for the `deps/` directory, dependency keys, lockfile entries, and the default binary name. Its **namespace** is the PascalCase name code uses for qualified access, derived from `name` (`my_app` -> `MyApp`). When the derivation isn't right (acronyms, unusual casing), declare it explicitly:
 
@@ -1475,13 +1574,12 @@ When using types from qualified standard library packages or dependency packages
 
 ```koja
 alias Net.TCPSocket
-alias JSON.Decoder
-alias JSON.Encoder as JSONEncoder
+alias JSON.Value
 
 conn = TCPSocket.connect("example.com", 80)
 ```
 
-`alias Net.TCPSocket` makes `TCPSocket` available as a local name. `alias JSON.Encoder as JSONEncoder` binds a custom local name. Aliases are scoped to the declaring file and don't affect other files.
+`alias Net.TCPSocket` makes `TCPSocket` available as a local name. `alias JSON.Value` makes `Value` available as a local name. Aliases are scoped to the declaring file and don't affect other files.
 
 Aliases name types only. Package-level functions are called with qualified syntax directly, no alias needed:
 
@@ -1494,6 +1592,7 @@ response = HTTP.get("https://example.com")
 The auto-imported `Global` package provides core types (`Option`, `Result`, `List`, `Map`, `Set`, `Process`, `IO`, `File`, `URI`, `Base`, `Path`, etc.) with no alias needed. Domain-specific packages require qualified access:
 
 - **`Crypto`**: `SHA1`, `SHA256`, `SHA384`, `SHA512`, `HMAC`, `Certificate`, `PrivateKey`, `PEMError`
+- **`JSON`**: `Value`, `Encoding`, `EncodeOptions`, `encode`, `decode`
 - **`Net`**: `TCPSocket`, `TCPListener`, `UDPSocket`, `Socket`, `IPAddress`, `SocketAddress`, `SocketKind`, `SocketError`, `TLSSession`, `TLSConfig`, `TLSIdentity`, `TrustStore`, `TLSError`, `VerificationError`
 
 Use `alias Crypto.SHA256` or `alias Net.TCPSocket` to access them.
@@ -1742,6 +1841,44 @@ end
 ```
 
 In most cases you won't use `receive` directly. The `Process` protocol's default `run` implementation handles it for you.
+
+### Runtime Observability
+
+The `Runtime` struct answers questions about the runtime as a whole. Two instance functions on `Pid` answer questions about one process:
+
+```koja
+Runtime.process_count()                       # live processes
+Runtime.process_count(Process.State.Blocked)  # live processes in one state
+Runtime.scheduler_count()                     # scheduler threads
+Runtime.mailbox_depth()                       # the calling process's own queue
+
+pid.state()          # Option<Process.State>
+pid.mailbox_depth()  # Option<Int>
+```
+
+`Process.State` names the scheduler lifecycle: `Blocked`, `Created`, `Runnable`, `Running`, `WaitingIO`. A dead process has no state, so the `Pid` functions return `Option.None` for a dead or unknown pid. `Runtime.process_count(Process.State.Runnable)` is the run-queue depth, the count of processes ready to run that wait for a scheduler. `Runtime.process_count()` counts every live process, including the entry process and the caller. `Runtime.scheduler_count()` is the saturation denominator, since the runtime is saturated when the `Running` count reaches it. It is always 1 on the interpreter backend.
+
+Every value is a point-in-time gauge. The runtime keeps scheduling while you read, so two reads can disagree, and no read can fail. There is no process enumeration. You observe the pids you own or receive, and a supervisor that wants visibility over its workers holds their refs.
+
+#### The overload contract
+
+Mailboxes are unbounded, and the two send primitives sit on opposite sides of that fact:
+
+- `call` is the built-in backpressure. The sender blocks until the reply arrives or the timeout fires, so a slow service slows its callers instead of accumulating a backlog.
+- `cast` never blocks and gives the sender no feedback. A service that only receives casts has chosen unboundedness, and its mailbox absorbs any rate mismatch.
+
+`Runtime.mailbox_depth()` is the detector for the second case. A cast-driven service polls its own depth inside `handle` and sheds load before the backlog becomes a problem:
+
+```koja
+fn handle(self, msg: Msg, from: Option<ReplyTo<Reply>>) -> Step<Self>
+  if Runtime.mailbox_depth() > 1000
+    # Shed load. Drop stale work, switch to batch mode, or stop.
+  end
+  # ...
+end
+```
+
+Shedding means receiving and discarding. There is no selective drop, so the handler itself must get cheap when the queue is deep. The depth count covers queued system and business messages and excludes the reply slot that `Ref.call` uses.
 
 ---
 
@@ -2123,6 +2260,8 @@ has_big = nums.any?(fn (n: Int) -> Bool n > 3 end)
 all_pos = nums.all?(fn (n: Int) -> Bool n > 0 end)
 ```
 
+`==` compares lists element by element. Two lists are equal when they have the same length and the elements at each index are equal. The conformance is conditional (`impl Equality for List<T: Equality>`), so a list of closures is not comparable and does not satisfy a `T: Equality` bound.
+
 List literals (`[a, b, c]`) are backed by the `ListLiteral<T>` protocol. See [Literal Protocols](#literal-protocols).
 
 ### `Map<K, V>`
@@ -2137,6 +2276,10 @@ m = m.put("b", 2)
 m.get("a").unwrap().print() # 1
 m.has?("b").print() # true
 m.length().print() # 2
+
+for (key, value) in m
+  "#{key}: #{value}".print()
+end
 ```
 
 Functions:
@@ -2149,7 +2292,9 @@ Functions:
 - `length(self) -> Int`: returns the number of entries.
 - `empty?(self) -> Bool`: returns `true` if the map has no entries.
 
-`Map` does not currently support iteration. To iterate over entries, use `List<(K, V)>` as an ordered key-value collection instead.
+`for` yields `(K, V)` entries. Iteration order is unspecified.
+
+`==` compares maps by key and value. Insertion order does not affect equality.
 
 Map literals (`[key: value, ...]`) are backed by the `MapLiteral<K, V>` protocol. See [Literal Protocols](#literal-protocols).
 
@@ -2165,6 +2310,10 @@ s = s.insert(1)
 
 s.length().print() # 2
 s.has?(1).print() # true
+
+for item in s
+  item.print()
+end
 ```
 
 Functions:
@@ -2176,6 +2325,10 @@ Functions:
 - `length(self) -> Int`: returns the number of elements.
 - `empty?(self) -> Bool`: returns `true` if the set has no elements.
 
+`for` yields each element once. Iteration order is unspecified.
+
+`==` compares sets by membership. Insertion order does not affect equality.
+
 `Set<T>` implements `ListLiteral<T>`, so list literal syntax constructs a set when the target type is `Set<T>`:
 
 ```koja
@@ -2184,7 +2337,7 @@ names: Set<String> = ["alice", "bob", "alice"] # Set with 2 elements
 
 ### String Functions
 
-`String` implements `Enumeration<String>`, so strings can be iterated character-by-character with `for`:
+`String` implements `Enumeration<String, Int>`, so `for` iterates Unicode characters:
 
 ```koja
 for c in "hello"
@@ -2361,6 +2514,17 @@ content.print()
 Both functions panic when a key or value contains U+0000.
 `System.get_env` also panics if the host value is not valid UTF-8.
 
+### Runtime
+
+Read-only process metrics. See [Runtime Observability](#runtime-observability) for the semantics and the overload contract.
+
+- `Runtime.process_count() -> Int`: live processes.
+- `Runtime.process_count(state: Process.State) -> Int`: live processes in one lifecycle state.
+- `Runtime.scheduler_count() -> Int`: scheduler threads that run processes.
+- `Runtime.mailbox_depth() -> Int`: the calling process's queued message count.
+- `pid.state() -> Option<Process.State>`: one process's lifecycle state, `Option.None` when dead or unknown.
+- `pid.mailbox_depth() -> Option<Int>`: one process's queued message count, `Option.None` when dead or unknown.
+
 ### Console I/O
 
 `IO` provides ergonomic console input/output. `STDIN`, `STDOUT`, and `STDERR` are available as `Fd` constants for low-level access.
@@ -2456,6 +2620,57 @@ Base.encode16(<<0, 15, 255>>).print() # "000fff"
 Base.url_encode64(<<251, 239>>).print() # "--8="
 ```
 
+### `Checksum`
+
+Checksums detect accidental corruption in binary data. They do not provide cryptographic authentication.
+
+- `Checksum.crc32(data: Binary) -> UInt32`: computes CRC-32/ISO-HDLC.
+- `Checksum.crc32c(data: Binary) -> UInt32`: computes CRC-32/ISCSI, also known as CRC-32C or Castagnoli.
+
+```koja
+Checksum.crc32("123456789".to_binary()) == 0xCBF43926
+Checksum.crc32c("123456789".to_binary()) == 0xE3069283
+```
+
+### JSON package
+
+`JSON.Value` represents a JSON value tree. Contextual literals can build nested arrays and objects directly:
+
+```koja
+payload: JSON.Value = [
+  "name": "Koja",
+  "active": true,
+  "scores": [10, 20, 30],
+  "metadata": [:],
+]
+```
+
+JSON objects keep entry order and duplicate names. Use `JSON.Value.Null` for JSON null.
+
+`JSON.Encoding` converts a type to `JSON.Value` through `to_json`. `JSON.Value`, `Bool`, `Int`, `Float`, `String`, and `List<T: JSON.Encoding>` conform.
+
+```koja
+struct Point
+  x: Int
+  y: Int
+end
+
+impl JSON.Encoding for Point
+  fn to_json(self) -> JSON.Value
+    value: JSON.Value = ["x": self.x.to_json(), "y": self.y.to_json()]
+    value
+  end
+end
+
+text = JSON.encode(Point{x: 3, y: 4})
+pretty = JSON.encode(payload, JSON.EncodeOptions{pretty?: true})
+decoded = JSON.decode(text)
+```
+
+`JSON.encode` accepts an optional `JSON.EncodeOptions` argument. The `pretty?: Bool = false` field selects indented output, as in `JSON.encode(value, JSON.EncodeOptions{pretty?: true})`.
+
+`JSON.decode` returns `JSON.Value ! String`. Typed decoding is not part of this API.
+
 ### `Path`
 
 POSIX path manipulation, modeled on Elixir's `Path`. All functions are pure string operations except `expand`, which reads the current working directory and `HOME`. None of them touch the file system, so `..` resolution is lexical and assumes no symlinks.
@@ -2478,27 +2693,31 @@ Path.split("/foo/bar").print() # ["/", "foo", "bar"]
 Path.relative_to("tmp/foo/bar", "tmp/bat").print() # "../foo/bar"
 ```
 
-### `Enumeration<T>` Protocol
+### `Enumeration<T, Cursor>` Protocol
 
 ```koja
-protocol Enumeration<T>
-  fn length(self) -> Int
+protocol Enumeration<T, Cursor>
+  fn cursor(self) -> Cursor
 
-  fn get(self, index: Int) -> Option<T>
+  fn next(self, cursor: Cursor) -> Option<(T, Cursor)>
 end
 ```
 
-Any type implementing `Enumeration<T>` can be used with `for` loops. `List<T>` and `String` implement this protocol. `get` returns `Option<T>` instead of panicking on out-of-bounds access. `for` loops unwrap the `Option` automatically.
+Any type that implements `Enumeration<T, Cursor>` can be used with `for`. `List`, `String`, `Range`, `Map`, and `Set` conform.
+
+`cursor` returns the initial traversal state. `next` returns an element and the next cursor, or `None` when traversal ends.
+
+The source remains unchanged. Cursor types are implementation details, and callers must not interpret opaque cursors.
 
 ### `Equality` Protocol
 
 ```koja
 protocol Equality
-  fn eq(self, other: Self) -> Bool
+  fn equals?(self, other: Self) -> Bool
 end
 ```
 
-Powers the `==` and `!=` operators. Implemented for all numeric types, `Bool`, `String`, `Binary`, and `Bits`.
+Powers the `==` and `!=` operators. Implemented for all numeric types, `Bool`, `String`, `Binary`, and `Bits`. `List<T>` implements it conditionally, element-wise, when `T` implements `Equality`.
 
 ### `Hash` Protocol
 
@@ -2574,7 +2793,29 @@ IO.puts(p.format()) # Point{x: 1, y: 2}
 
 ### Literal Protocols
 
-List and map literals are backed by protocols, allowing custom types to opt into literal syntax.
+Literal protocols let custom types opt into contextual literal syntax. A conversion applies only to a literal expression, not to a variable or another expression.
+
+Scalar protocols receive the canonical literal value and return `Self`:
+
+```koja
+protocol BoolLiteral
+  fn from_bool(value: Bool) -> Self
+end
+
+protocol IntLiteral
+  fn from_int(value: Int) -> Self
+end
+
+protocol FloatLiteral
+  fn from_float(value: Float) -> Self
+end
+
+protocol StringLiteral
+  fn from_string(value: String) -> Self
+end
+```
+
+Negated numeric literals and interpolated strings also use these protocols. Sized numeric literal fitting stays separate, so `x: UInt8 = 4` still materializes a `UInt8` directly.
 
 **`ListLiteral<T>`**: the compiler builds a `List<T>` from `[a, b, c]` and passes it to `from_list`:
 
@@ -2586,15 +2827,17 @@ end
 
 `List<T>` and `Set<T>` implement `ListLiteral<T>`.
 
-**`MapLiteral<K, V>`**: the compiler builds a `Map<K, V>` from `[k: v, ...]` and passes it to `from_map`:
+**`MapLiteral<K, V>`**: the compiler passes `[k: v, ...]` as an ordered list of entry tuples:
 
 ```koja
 protocol MapLiteral<K, V>
-  fn from_map(map: Map<K, V>) -> Self
+  fn from_entries(entries: List<(K, V)>) -> Self
 end
 ```
 
-`Map<K, V>` implements `MapLiteral<K, V>`.
+Entry order and duplicate keys remain available to the conformer. The default `Map<K, V>` carrier still lowers directly to `Map.new().put(...)` without an intermediate entry list.
+
+Collection element, key, and value types come from the selected conformance. A non-generic type can therefore implement `ListLiteral<Item>` or `MapLiteral<Key, Value>`.
 
 ---
 
@@ -2613,6 +2856,19 @@ end
 | `koja doc`    | Generate static HTML documentation               |
 | `koja lex`    | Dump tokens                                      |
 | `koja parse`  | Dump AST                                         |
+
+### Project Selection
+
+Project-aware commands use the `koja.toml` in the current working directory by default. Use the global `-S, --project <directory>` option to select another project:
+
+```sh
+koja run -S ../my_app
+koja test --project ../my_app
+```
+
+The selector controls the manifest, sources, dependencies, build directory, default documentation output, and diagnostic paths. It does not change the command or launched program working directory. Relative file operations in the program still use the caller's working directory.
+
+The selector works with project-mode `build`, `check`, `run`, `shell`, `test`, `tasks`, `deps`, `format`, and `doc` commands. Do not combine it with a standalone source file or explicit `format` or `doc` paths.
 
 ### Project Scaffolding
 
