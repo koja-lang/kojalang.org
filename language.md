@@ -3,7 +3,7 @@ layout: docs
 title: Language Reference
 description: The complete Koja language reference covering syntax, types, pattern matching, error handling, value semantics, protocols, concurrency, the standard library, and C FFI.
 permalink: /language/
-koja_version: 0.18.0
+koja_version: 0.18.2
 source_url: https://github.com/koja-lang/koja/blob/main/LANGUAGE.md
 toc_depth: 2
 ---
@@ -1110,7 +1110,7 @@ Tuples support `==`/`!=` (element-wise, when every element does), `format()`, `p
 (1, "one").print() # (1, "one")
 ```
 
-A tuple containing a closure- or union-typed element (at any nesting depth) is not comparable, since closures and union values cannot be compared for equality. `==`/`!=` on such a tuple is a compile error, and the tuple does not satisfy a `T: Equality` bound. `format()` and `print()` still work, rendering opaque elements as `"..."`.
+Function and union elements compare like any other value (see the [`Equality` protocol](#equality-protocol)). A tuple satisfies a `T: Equality` bound when every element does. `format()` and `print()` render function elements as `"..."` and union elements as their current member.
 
 Tuples work as function returns, generic type arguments, struct fields, and union members:
 
@@ -1389,7 +1389,7 @@ end
 
 The compiler checks completeness and signature compatibility, and synthesizes any default-bodied functions the type omits. If the body has a function whose name is a near miss of an omitted default, the compiler warns about the likely typo. Protocol methods may declare default parameters. Implementations inherit those callable arities and cannot repeat the defaults. Entry processes are declared this way (`struct App: Process<(), (), ()>`, see [Packages](#packages)). Protocol declarations accept `@doc` and `@deprecated`.
 
-`Debug` and `Equality` are auto-derived for every type, so listing one is only an override. It suppresses the derived implementation, and the body must supply `format` / `equals?`:
+`Debug` and `Equality` are auto-derived for every type, so listing one is only an override. It suppresses the derived implementation, and the body must supply `format` / `equals?`. Derived `Equality` compares every field and payload, including function and union fields.
 
 ```koja
 struct Token: Debug
@@ -2260,7 +2260,7 @@ has_big = nums.any?(fn (n: Int) -> Bool n > 3 end)
 all_pos = nums.all?(fn (n: Int) -> Bool n > 0 end)
 ```
 
-`==` compares lists element by element. Two lists are equal when they have the same length and the elements at each index are equal. The conformance is conditional (`impl Equality for List<T: Equality>`), so a list of closures is not comparable and does not satisfy a `T: Equality` bound.
+`==` compares lists element by element. Two lists are equal when they have the same length and the elements at each index are equal. The conformance is conditional (`impl Equality for List<T: Equality>`), and since every Koja type implements `Equality`, every list is comparable.
 
 List literals (`[a, b, c]`) are backed by the `ListLiteral<T>` protocol. See [Literal Protocols](#literal-protocols).
 
@@ -2429,8 +2429,9 @@ Float-extract segments (`x: Float32` in a pattern) are not supported yet. When t
 
 #### Functions
 
-- `at(self, index: Int) -> Option<Int>`: returns the byte at `index` as an `Int` in `0..255`, or `Option.None` out of bounds. O(1). Prefer this over `String.get` for scanning large inputs (`String.get` is O(n) per call because it counts UTF-8 codepoints from the start).
+- `at(self, index: Int) -> Option<Int>`: returns the byte at `index` as an `Int` in `0..255`, or `Option.None` out of bounds.
 - `byte_size(self) -> Int`: returns the number of bytes.
+- `find(self, needle: Binary, from: Int) -> Option<Int>`: returns the byte offset of the first occurrence of `needle` at or after byte offset `from`, or `Option.None` when there is no match. An empty needle matches at `from`.
 - `slice(self, range: Range) -> Binary`: copies the inclusive byte range `[start, stop]`. Endpoints clamp to the binary's bounds.
 - `to_bits(self) -> Bits`: zero-cost widening from bytes to bits.
 - `to_string(self) -> String ! String.ConversionError`: attempts to interpret bytes as UTF-8, failing with `InvalidUTF8` when decoding fails.
@@ -2440,7 +2441,7 @@ Float-extract segments (`x: Float32` in a pattern) are not supported yet. When t
 `Bits` functions:
 
 - `bit_size(self) -> Int`: returns the number of bits.
-- `byte_at(self, index: Int) -> Option<Int>`: returns storage byte `index` as an `Int` in `0..255`, or `Option.None` out of bounds. Bytes hold bits MSB-first with zeroed trailing padding, and the bitstring occupies `ceil(bit_size / 8)` bytes. O(1).
+- `byte_at(self, index: Int) -> Option<Int>`: returns storage byte `index` as an `Int` in `0..255`, or `Option.None` out of bounds. Bytes hold bits MSB-first with zeroed trailing padding, and the bitstring occupies `ceil(bit_size / 8)` bytes.
 
 `Bits` also implements `Equality` (bit length plus bit comparison) and `Hash`, so it works as a `Map` key or `Set` element. Its `Debug` rendering is the round-trippable literal form: whole bytes as decimals, then any trailing partial byte as `value::width`, e.g. `<<72, 101, 5::3>>`. Truncation past 64 bytes matches `Binary`.
 
@@ -2717,7 +2718,25 @@ protocol Equality
 end
 ```
 
-Powers the `==` and `!=` operators. Implemented for all numeric types, `Bool`, `String`, `Binary`, and `Bits`. `List<T>` implements it conditionally, element-wise, when `T` implements `Equality`.
+Powers the `==` and `!=` operators. Every Koja type implements it. Primitives compare by value, collections compare element-wise, and structs and enums compare field by field through the derived implementation unless the type writes its own `equals?`.
+
+Two function values are equal when they come from the same function or closure expression and their captured values are equal. `&f/1 == &f/1` is `true`, and two closures created by the same `fn` expression compare their captures with `==`. Two closure expressions at different source locations are never equal, even when their text is identical, since the compiler never merges distinct expressions.
+
+```koja
+fn make_adder(n: Int) -> fn (Int) -> Int
+  adder = fn (x: Int) -> Int
+    x + n
+  end
+  adder
+end
+
+make_adder(1) == make_adder(1) # true
+make_adder(1) == make_adder(2) # false, captures differ
+```
+
+Two union values are equal when they carry the same member and the payloads are equal. `Cat{name: "x"} == Dog{name: "x"}` is `false` under `type Pet = Cat | Dog`.
+
+Functions implement `Equality` but not `Hash`, so `f.hash()` is a compile error. A union implements `Hash` when every member does, so it works as a `Map` key or `Set` element.
 
 ### `Hash` Protocol
 
