@@ -3,7 +3,7 @@ layout: docs
 title: Language Reference
 description: The complete Koja language reference covering syntax, types, pattern matching, error handling, value semantics, protocols, concurrency, the standard library, and C FFI.
 permalink: /language/
-koja_version: 0.18.2
+koja_version: 0.18.3
 source_url: https://github.com/koja-lang/koja/blob/main/LANGUAGE.md
 toc_depth: 2
 ---
@@ -191,9 +191,9 @@ Koja uses value semantics. Every binding, parameter, return, and field is an ind
 All types copy on assignment, and the result is always an independent value. What a copy costs depends on the representation:
 
 - Numeric primitives, `Bool`, `()`, and function pointers copy bit-for-bit.
-- `String`, `Binary`, and `Bits` share one reference-counted buffer, so a copy costs nothing regardless of size.
+- `String`, `Binary`, and `Bits` share one reference-counted buffer, so a copy costs nothing regardless of size. Both backends grow the buffer in place when the old value provably dies at a `<>` and no other binding shares it. Thus, `s = s <> piece` rebind loops and interpolation accumulators build a string in linear time.
 - Structs and enums copy their top-level fields, and each heap-backed field follows these same rules. Recursive constituents live in reference-counted boxes that copies share, so copying a persistent tree touches only the root and an update touches only the changed path, never the whole structure.
-- `List`, `Map`, and `Set` copy their backing buffer, so a collection copy is O(n) today. The LLVM backend skips the copy when the old value provably dies at the mutation site. Thus, compiled `xs = xs.append(x)` rebind loops build a collection in linear time. The interpreter preserves the same behavior but can still copy each loop iteration.
+- `List`, `Map`, and `Set` copy their backing buffer, so a collection copy is O(n) today. The LLVM backend skips the copy when the old value provably dies at the mutation site. Thus, compiled `xs = xs.append(x)` rebind loops build a collection in linear time. The interpreter does the same for these rebind loops, and copies in shapes where it cannot prove the old value dead.
 
 None of this is observable in behavior. Mutation always builds the mutated binding's own value, no binding ever observes another's changes, and a copy is always an independent value:
 
@@ -1094,7 +1094,9 @@ There is no positional access (`t.0`). Take a tuple apart with a destructuring a
 (a, (b, c)) = nested # nesting works
 ```
 
-Every element pattern must be irrefutable: a binding, a wildcard, or a nested tuple of those. Use `match` for refutable patterns:
+Every element pattern must be irrefutable: a binding, a wildcard, or a nested tuple of those. Each name follows the same rules as plain assignment. A name that already exists in scope is rebound and must keep its type, and a new name is declared. This makes `(conn, result) = conn.execute(query)` inside a loop body update the enclosing `conn`.
+
+Use `match` for refutable patterns:
 
 ```koja
 match point
@@ -1168,13 +1170,27 @@ end
 
 Generic enum unit variants infer from an enclosing expected type. Expected
 types come from annotations, function and closure returns, control-flow
-arms, struct fields, and generic call returns:
+arms, struct fields, generic call returns, and the other operand of `==`:
 
 ```koja
 z: Option<Int32> = Option.None
 
 fn empty_label -> (Int, Option<String>)
   (1, Option.None)
+end
+
+found = Option.Some(3) != Option.None
+```
+
+The arms of a `match`, `if`, `cond`, or `?:` bound to an unannotated
+variable also fill each other's gaps. `Result.Ok(true)` in one arm and
+`Result.Err("nope")` in another give the binding type
+`Result<Bool, String>`:
+
+```koja
+r = match flag
+  true -> Result.Ok(true)
+  false -> Result.Err("nope")
 end
 ```
 
@@ -1219,11 +1235,13 @@ match x
 end
 ```
 
-An enum variant counts as exhaustively covered only when its payload
-patterns match every payload value. A literal or nested pattern such as
-`Option.Some(Color.Red)` does not cover every `Some`. Multiple partial
-payload arms are not combined, so bind the payload and use an inner
-`match`, or add a full payload arm such as `Option.Some(_)`.
+Coverage is structural. Enum variants, `Bool`, tuples, structs and union
+members each split into their constructors, and nested payload arms
+combine, so `Option.Some(Color.Red)`, `Option.Some(Color.Green)` and
+`Option.None` exhaust an `Option<Color>` with two colors. A subject of
+any other type, such as `Int` or `String`, needs a wildcard or binding
+arm. A non-exhaustive match reports a pattern it does not cover, and an
+arm that earlier arms already cover gets a warning.
 
 Struct destructuring works for both plain structs and enum-struct variants. Field syntax is always `name: pattern`. There is no shorthand form. To bind a field under its own name, write `x: x`. Unlisted fields are implicit wildcards, and an empty `{}` matches any value of that type:
 
@@ -1941,27 +1959,28 @@ Doc strings support Markdown and are rendered by `koja doc`.
 ### `@test`
 
 Marks a function as a test case. `koja test` discovers and runs all
-`@test`-annotated functions in `src/` and `test/` directories. Test
-functions return `Result<Bool, String>`. Any `Result.Ok` passes, while
-`Result.Err(message)` fails with the given message.
+`@test`-annotated functions in `src/` and `test/` directories. A test is
+a fallible function with a `String` error. Returning normally passes,
+and `fail message` fails with that message. Setup calls propagate with
+`try`, so a failed setup reads as a failed test.
 
 ```koja
 struct AdditionTest
   @test "adds two integers"
-  fn test_addition -> Result<Bool, String>
+  fn test_addition ! String
     result = add(2, 3)
 
-    unless result == 5
-      return Result.Err("expected 5, got #{result}")
+    if result != 5
+      fail "expected 5, got #{result}"
     end
-
-    Result.Ok(true)
   end
 end
 ```
 
 An optional string after `@test` provides a description printed during the
 test run. The runner reports every discovered test even when some fail.
+Tests declared as `-> Result<T, String>` still run. Any `Result.Ok` passes
+and `Result.Err(message)` fails.
 
 ---
 
@@ -1988,7 +2007,7 @@ result.print()
 
 Extern functions have no body. Parameter and return types must be FFI-compatible: explicit-width primitives (`Int32`, `UInt8`, `Float32`, etc.), `Bool`, `CPtr<T>`, or `()`. Extern functions can coexist with normal Koja functions in the same struct. Use `priv fn` on the extern declarations and expose safe public wrappers.
 
-A `Float32` / `Float64` value returned by an extern call is checked at the call site. A NaN or infinity handed back by C panics with an `ArithmeticError` (`non-finite float returned by <name>`), keeping the finite-only float invariant intact across the FFI boundary (see [Arithmetic Faults](#arithmetic-faults)).
+A `Float32` / `Float64` value returned by an extern call is checked at the call site. A NaN or infinity handed back by C panics with an `ArithmeticError` (`non-finite float returned by <name>`), keeping the finite-only float invariant intact across the FFI boundary (see [Arithmetic Faults](#arithmetic-faults)). `CPtr<Float32>.read()` and `CPtr<Float64>.read()` apply the same check (`non-finite float read by CPtr.read`), so a NaN in a C-filled buffer cannot enter a `Float` either.
 
 Declare C return types at their true width and let [numeric widening](#numeric-widening) do the rest. A C `int` bound as `Int32` flows directly into `Int` contexts with correct sign extension, so negative error codes survive the trip. Reading a C `int` as `Int` would zero-extend the upper 32 bits and corrupt negative values.
 
@@ -2026,7 +2045,7 @@ struct CPtr<T>
 end
 ```
 
-`alloc` and `free` use C's `malloc` and `free`. All functions are compiler intrinsics. `address` returns the raw address as an `Int` bit pattern (0 for null). `CPtr<T>` implements `Debug` by rendering that address as 16 hex digits: `ptr.format()` gives `CPtr(0x00006000023a4f10)` and a null pointer gives `CPtr(0x0)`.
+`alloc` and `free` use C's `malloc` and `free`. All functions are compiler intrinsics. `address` returns the raw address as an `Int` bit pattern (0 for null). `CPtr<T>` implements `Debug` by rendering that address as 16 hex digits: `ptr.format()` gives `CPtr(0x00006000023a4f10)` and a null pointer gives `CPtr(0x0)`. `==` on two pointers compares their addresses, not the pointed-to values.
 
 ```koja
 buf: CPtr<Int32> = CPtr.alloc(4)
@@ -2038,7 +2057,7 @@ null_ptr: CPtr<Int32> = CPtr.null()
 null_ptr.null?().print()
 ```
 
-Type annotations on the variable drive generic inference for static functions like `CPtr.alloc()` and `CPtr.null()`.
+Type annotations on the variable drive generic inference for static functions like `CPtr.alloc()` and `CPtr.null()`. In a comparison the other operand supplies the type, so `p == CPtr.null()` needs no annotation.
 
 `CPtr<UInt8>` additionally provides the two ways to get a pointer to a `Binary`'s bytes:
 
@@ -2872,7 +2891,7 @@ Collection element, key, and value types come from the selected conformance. A n
 | `koja tasks`  | List tasks from the project, deps, and toolchain |
 | `koja deps`   | Fetch and inspect dependencies (`get`, `update`) |
 | `koja format` | Opinionated code formatter (`--check` for CI)    |
-| `koja doc`    | Generate static HTML documentation               |
+| `koja doc`    | Generate HTML docs, or print one symbol's doc    |
 | `koja lex`    | Dump tokens                                      |
 | `koja parse`  | Dump AST                                         |
 
@@ -2887,11 +2906,33 @@ koja test --project ../my_app
 
 The selector controls the manifest, sources, dependencies, build directory, default documentation output, and diagnostic paths. It does not change the command or launched program working directory. Relative file operations in the program still use the caller's working directory.
 
-The selector works with project-mode `build`, `check`, `run`, `shell`, `test`, `tasks`, `deps`, `format`, and `doc` commands. Do not combine it with a standalone source file or explicit `format` or `doc` paths.
+The selector works with project-mode `build`, `check`, `run`, `shell`, `test`, `tasks`, `deps`, `format`, and `doc` commands. Do not combine it with a standalone source file or explicit `format` paths.
+
+### Execution Backend
+
+`koja run` executes through the interpreter by default for fast startup. Pass `--backend=llvm`, or any code generation flag such as `--release`, to compile a native binary and run that instead. `koja build` always compiles.
+
+A program that declares an `@extern "C"` function the interpreter has no handler for compiles through LLVM on its own, so an FFI project runs with a bare `koja run`. Pass `--backend=interpreter` to force the interpreter and see which extern is missing.
+
+### Documentation
+
+`koja doc` generates an HTML tree for the project, its dependencies, and the standard library (`--project-only` skips the last two). Outside a project it documents the standard library alone. `koja doc serve` generates and hosts the tree locally.
+
+`koja doc <symbol>` prints one symbol's doc to the terminal as plain markdown: `koja doc List.append`, `koja doc Process.MonitorRef`. `koja doc search <query>` lists every symbol whose name or documentation contains the query, and renders the full doc when the query is an exact name.
+
+### Target CPU
+
+Compiled binaries target a portable baseline for the build architecture, so a binary built on one machine runs on any other machine of the same architecture. The baseline is `x86-64-v2` on x86_64 and `generic` on aarch64. Two builds of the same commit produce the same instruction set.
+
+Pass `--target-cpu native` to `koja build` or `koja run` to use every instruction the build machine supports. The binary is then only guaranteed to run on that machine.
+
+```sh
+koja build --release --target-cpu native
+```
 
 ### Project Scaffolding
 
-`koja new <name>` creates a project directory with the following structure:
+`koja new <path>` creates a project directory with the following structure:
 
 ```
 my_app/
@@ -2899,6 +2940,8 @@ my_app/
   src/
     app.koja
 ```
+
+The directory is created as typed. The package name is the last path segment in snake_case, so `koja new my_app`, `koja new my-app`, and `koja new MyApp` all scaffold package `my_app` with namespace `MyApp`. A nested path like `koja new projects/my-app` creates the intermediate directories.
 
 The `koja.toml` file defines the project configuration:
 
