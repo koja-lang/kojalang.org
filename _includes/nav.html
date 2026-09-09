@@ -1,7 +1,17 @@
 <header class="nav">
-  <a class="nav-brand" href="{{ '/' | relative_url }}">
-    <img src="{{ '/logo.svg' | relative_url }}" alt="Koja" height="24" />
-  </a>
+  <div class="nav-left">
+    <a class="nav-brand" href="{{ '/' | relative_url }}">
+      <img src="{{ '/logo.svg' | relative_url }}" alt="Koja" height="24" />
+    </a>
+    <!-- app.js fills this with the newest release version and unhides it.
+         Without JS the chip stays hidden and the nav is unchanged. -->
+    <a
+      class="nav-version"
+      data-release-link
+      href="https://github.com/koja-lang/koja/releases/latest"
+      hidden
+    ></a>
+  </div>
   <div class="nav-right">
     <nav class="nav-links" id="nav-menu">
       <a href="{{ '/language/' | relative_url }}">Language</a>

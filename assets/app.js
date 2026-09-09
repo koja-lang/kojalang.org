@@ -62,22 +62,25 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-/* ---------- docs table of contents ---------- */
+/* ---------- nav version chip ---------- */
 
-// Hero badge shows the newest release. The catalog is a static file
-// on GitHub Pages, so a failed fetch leaves the fallback text in place.
-const releaseBadge = document.querySelector("[data-release-badge]");
+// Shows the newest release next to the logo. The catalog is a static file
+// on GitHub Pages, so a failed fetch leaves the chip hidden.
+const releaseLink = document.querySelector("[data-release-link]");
 
-if (releaseBadge) {
+if (releaseLink) {
   fetch("https://releases.kojalang.org/latest.json")
     .then((response) => (response.ok ? response.json() : null))
     .then((release) => {
       if (release?.version) {
-        releaseBadge.textContent = `v${release.version} · Alpha`;
+        releaseLink.textContent = `v${release.version}`;
+        releaseLink.hidden = false;
       }
     })
     .catch(() => {});
 }
+
+/* ---------- docs table of contents ---------- */
 
 const toc = document.querySelector(".docs-toc");
 

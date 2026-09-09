@@ -101,7 +101,6 @@ a:hover {
 /* Structural/control links carry their own affordance, so no underline. */
 .nav-brand,
 .nav-links a,
-.badge,
 .button {
   text-decoration: none;
 }
@@ -169,6 +168,28 @@ button:focus-visible {
   display: block;
   height: 24px;
   width: auto;
+}
+
+.nav-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.nav-version {
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  text-decoration: none;
+}
+
+.nav-version:hover {
+  color: var(--ink);
+  border-color: var(--ink-soft);
+  text-decoration: none;
 }
 
 .nav-links {
@@ -296,11 +317,6 @@ button:focus-visible {
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-}
-
-.badge:hover {
-  filter: brightness(1.08);
-  text-decoration: none;
 }
 
 .hero h1 {
@@ -512,6 +528,7 @@ button:focus-visible {
   margin: 0 auto 1.75rem;
   color: var(--ink-soft);
   font-size: 1rem;
+  text-wrap: balance;
 }
 
 .install-note {
