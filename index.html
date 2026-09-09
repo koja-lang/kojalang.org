@@ -3,7 +3,15 @@ layout: default
 ---
 
 <section class="hero">
-  <span class="badge">Alpha · Early development</span>
+  <!-- app.js swaps the text for the newest release version. The static
+       text is the no-JS fallback, so nothing shifts on load. -->
+  <a
+    class="badge"
+    data-release-badge
+    href="https://github.com/koja-lang/koja/releases/latest"
+  >
+    Alpha · Early development
+  </a>
   <h1>Joy, compiled.</h1>
   <p class="hero-trio">Friendly. Safe. Powerful.</p>
   <p class="hero-sub">

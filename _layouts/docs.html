@@ -39,7 +39,8 @@ layout: default
     <header class="docs-header">
       <h1>{{ page.title }}</h1>
       <p class="docs-meta">
-        Current as of Koja v{{ page.koja_version }} ·
+        {% if page.koja_version %}Current as of Koja v{{ page.koja_version }}
+        ·{% endif %}
         <a href="{{ page.source_url }}">Source on GitHub</a>
       </p>
     </header>

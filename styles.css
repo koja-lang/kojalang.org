@@ -101,6 +101,7 @@ a:hover {
 /* Structural/control links carry their own affordance, so no underline. */
 .nav-brand,
 .nav-links a,
+.badge,
 .button {
   text-decoration: none;
 }
@@ -295,6 +296,11 @@ button:focus-visible {
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
+}
+
+.badge:hover {
+  filter: brightness(1.08);
+  text-decoration: none;
 }
 
 .hero h1 {
