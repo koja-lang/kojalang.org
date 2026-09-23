@@ -3,7 +3,7 @@ layout: docs
 title: Language Reference
 description: The complete Koja language reference covering syntax, types, pattern matching, error handling, value semantics, protocols, concurrency, the standard library, and C FFI.
 permalink: /language/
-koja_version: 0.18.3
+koja_version: 0.19.0
 source_url: https://github.com/koja-lang/koja/blob/main/LANGUAGE.md
 toc_depth: 2
 ---
@@ -21,14 +21,15 @@ Koja is a statically typed, compiled language targeting native binaries via LLVM
 - [Value Semantics](#value-semantics): Rules, Copy Cost
 - [Functions](#functions): Declaration, Parameters, `return`, Private Declarations
 - [Closures and Function Types](#closures-and-function-types): Block Closures, Short Closures, Capture Semantics, Function Types
-- [Control Flow](#control-flow): `if`/`else`, `unless`, `while`, `loop`/`break`, `for`...`in`, Ternary, `cond`, Definite Assignment
+- [Control Flow](#control-flow): `if`/`else`, `while`, `loop`/`break`, `for`...`in`, Ternary, `cond`, Definite Assignment
 - [Types](#types): Primitives, Builtin Declarations, Numeric Widening, Arithmetic Faults, Unit, Strings, Structs, Enums, Nested Types, Union Types, Tuples, Generics
 - [Pattern Matching](#pattern-matching): `match`, OR Patterns
 - [Error Handling](#error-handling): `! E` Signatures, `fail`, `try`, Error Unions, `rescue`
 - [Protocols](#protocols): Behavioral Contracts, Impl Blocks, Static Dispatch
 - [Packages](#packages): Transparent Files, Visibility, Aliases, Dependencies
 - [Concurrency](#concurrency): `Task`, Processes, Lifecycle, `Ref`, `ReplyTo`, `spawn`/`receive`, Runtime Observability
-- [Annotations](#annotations): `@deprecated`, `@doc`, `@test`
+- [Testing](#testing): `test` Blocks, `assert`, `Test.Failure`, Setup and Skips, Panics, Running Tests
+- [Annotations](#annotations): `@deprecated`, `@doc`, `@test` (deprecated)
 - [C FFI](#c-ffi): `@extern "C"`, `CPtr<T>`, `CString`
 - [Standard Library](#standard-library): Core Types, Collections, String Functions, Binary/Bits, File I/O, Parsing, URI, Base, Path, Protocols
 - [Tooling](#tooling): CLI Commands, Custom Tasks, LSP, Formatter
@@ -53,11 +54,13 @@ x = 42 # inline comment
 ### Keywords
 
 ```
-after, alias, break, builtin, cond, const, else, end, enum, extend,
-fail, false, fn, for, if, impl, in, loop, match, not, priv,
-protocol, receive, rescue, return, self, spawn, struct, true, try,
-type, unless, when, while
+after, alias, assert, break, builtin, cond, const, else, end, enum,
+extend, fail, false, fn, for, if, impl, in, loop, match, not, priv,
+protocol, receive, rescue, return, self, spawn, struct, test, true,
+try, type, unless, when, while
 ```
+
+`unless` was removed in 0.19 but stays reserved, so the compiler can point an old `unless cond` at its replacement `if not cond`.
 
 `and` and `or` are operator-identifiers, not reserved keywords. They act as infix boolean operators in expressions (`a and b`, `x or y`) but can also be used as function or field names (for example, `option.or(default)`).
 
@@ -170,6 +173,34 @@ const EMPTY: Option<Int> = Option.None
 Constants are inlined at every usage site.
 
 Within a package, constants are read by bare name (`MAX`). Constants from the auto-imported `Global` package also resolve bare (`STDOUT`). Public constants in other packages are read through the package namespace (`Mathlib.PI`).
+
+A struct, enum, or builtin can own constants. Declare the constant inside the owner's body, or at the top level with a qualified name. The two forms are equivalent:
+
+```koja
+struct Duration
+  unit: Duration.Unit
+  value: Int
+
+  enum Unit
+    Nanoseconds
+    Seconds
+  end
+
+  const ZERO = Duration{unit: Duration.Unit.Nanoseconds, value: 0}
+end
+
+const Duration.MAX_SECONDS = 9223372036854775807
+```
+
+A nested constant is always read by its qualified name, `Duration.ZERO`, even inside the owner's own body. It can be a field default:
+
+```koja
+struct Summary
+  elapsed: Duration = Duration.ZERO
+end
+```
+
+A nested constant shares the owner's member namespace, so it cannot take the name of a method or an enum variant. The stdlib uses this form for `Int.MAX`, `Int.MIN`, `Duration.ZERO`, `Timestamp.UNIX_EPOCH`, and `IPAddress.LOOPBACK`.
 
 ---
 
@@ -438,13 +469,10 @@ end
 
 There is no `else if`. For multi-way branching, use [`cond`](#cond).
 
-### `unless`
-
-`unless` executes its body when the condition is `false`. It is a
-single-branch conditional and does not accept `else`.
+Guard clauses negate the condition with `not`. `not` binds tighter than `and` and `or`, so a compound condition needs parentheses: `if not (a and b)`.
 
 ```koja
-unless ready?
+if not ready?
   "not ready".print()
 end
 ```
@@ -783,7 +811,7 @@ c = Config{name: "app"} # host and port fill from the defaults
 Config{} # error: `name` has no default
 ```
 
-Default values are limited to side-effect-free expressions: literals (no interpolation), negated numerics, unit enum variants, binary literals, and struct, list, map, or set literals of those. The compiler checks each default against the field type at the declaration. A default cannot use an `alias` shorthand. Write the qualified name.
+Default values are limited to side-effect-free expressions: literals (no interpolation), negated numerics, unit enum variants, binary literals, constants (`LIMIT`, `Duration.ZERO`), and struct, list, map, or set literals of those. The compiler checks each default against the field type at the declaration. A default cannot use an `alias` shorthand. Write the qualified name.
 
 The default expression evaluates at each construction that omits the field. This makes generic defaults work: a `List<T>` field can default to `[]` and an `Option<T>` field to `Option.None`:
 
@@ -1006,7 +1034,7 @@ end
 
 ### Nested Types
 
-A struct or enum can own other types. Declare the nested type inside the owner's body, or at the top level with a qualified name. The two forms are equivalent:
+A struct or enum can own other types and protocols. Declare the nested item inside the owner's body, or at the top level with a qualified name. The two forms are equivalent:
 
 ```koja
 struct Supervisor
@@ -1046,6 +1074,50 @@ end
 ```
 
 Nesting is a namespacing device only. The nested type does not inherit the owner's type parameters, and `priv` on a nested type means package-private as usual.
+
+A protocol nests the same way. This lets several types each own a protocol with the same leaf name, and one type can implement all of them:
+
+```koja
+struct Date
+  day: Int
+
+  protocol Format
+    fn format_date(self, date: Date) -> String
+  end
+end
+
+struct Time
+  hour: Int
+end
+
+protocol Time.Format
+  fn format_time(self, time: Time) -> String
+end
+
+enum ISO8601
+  Extended
+end
+
+impl Date.Format for ISO8601
+  fn format_date(self, date: Date) -> String
+    "day #{date.day}"
+  end
+end
+
+impl Time.Format for ISO8601
+  fn format_time(self, time: Time) -> String
+    "hour #{time.hour}"
+  end
+end
+
+fn render<F: Date.Format>(date: Date, formatter: F) -> String
+  formatter.format_date(date)
+end
+```
+
+The protocol is always referenced as `Date.Format`, in `impl` headers, generic bounds, and conformance lists alike.
+
+Constants nest the same way, and a `builtin` body can own them too. See [Constants](#constants).
 
 ### Union Types
 
@@ -1328,7 +1400,7 @@ The `!` spelling is opt-in per declaration. A function declared `-> Result<T, E>
 
 ```koja
 fn read_config(path: String) -> Config ! ConfigError
-  unless File.exists?(path)
+  if not File.exists?(path)
     fail ConfigError.Missing(path)
   end
   # ...
@@ -1599,7 +1671,22 @@ conn = TCPSocket.connect("example.com", 80)
 
 `alias Net.TCPSocket` makes `TCPSocket` available as a local name. `alias JSON.Value` makes `Value` available as a local name. Aliases are scoped to the declaring file and don't affect other files.
 
-Aliases name types only. Package-level functions are called with qualified syntax directly, no alias needed:
+An alias can also name a package-level function or constant. A function alias binds every arity of the function, so both the call and the `&name/arity` reference work through it:
+
+```koja
+alias Test.require
+alias JSON.decode as parse
+alias Config.DEFAULT_PORT
+
+conn = try require(connect())
+value = try parse(text)
+decoder = &parse/1
+port = DEFAULT_PORT
+```
+
+The local name keeps the case of its target. A function alias is lowercase and a type or constant alias is uppercase, so `alias JSON.decode as Parse` is an error. Only package-level declarations can be aliased. To reach a method or a nested type, alias the owning type and call through it.
+
+Qualified syntax still works with no alias:
 
 ```koja
 response = HTTP.get("https://example.com")
@@ -1636,7 +1723,7 @@ Every other command is offline. `build`, `check`, `run`, `test`, and `doc` verif
 error: dependency `postgres` is not pinned in koja.lock (koja.toml changed?), run `koja deps get`
 ```
 
-`koja deps` prints each dependency with its pin and local state. `koja deps update [name]` re-resolves refs against their remotes (moving a `branch` pin forward). `koja deps clean` removes `deps/`. With `--cache` it also purges the global mirror cache.
+`koja deps` prints each dependency with its pin and local state. `koja deps update [name]` re-resolves refs against their remotes (moving a `branch` pin forward). `koja deps outdated` reads each remote and lists what is newer than the pin. A `tag` pin is compared against the remote's `X.Y.Z` tags and prints `tz 2026.3.0 -> 2026.4.0`, and any other pin is compared against the remote head. It exits 1 when anything is outdated and never writes `koja.lock`. `koja deps clean` removes `deps/`. With `--cache` it also purges the global mirror cache.
 
 Private repositories work through the ambient git configuration: SSH agents for `git@` URLs, credential helpers for https, and `insteadOf` rewrites in CI. Credentials never appear in `koja.toml` or `koja.lock`.
 
@@ -1900,13 +1987,170 @@ Shedding means receiving and discarding. There is no selective drop, so the hand
 
 ---
 
+## Testing
+
+A test is a `test` block. `koja test` finds every block in `src/` and `test/`, runs each one in its own process, and reports the result.
+
+```koja
+test "greet builds a greeting message"
+  assert greet("Koja") == "Hello, Koja!"
+end
+```
+
+### `test` Blocks
+
+A `test` block takes a required string description and a body. The body has no parameters and no `self`. Reaching `end` passes the test. An `assert` that is false, a `fail`, or a `try` that propagates an error fails it.
+
+A block goes at the top level of a file or inside a `struct`, `enum`, `impl`, `extend`, or `builtin` body. A member block becomes a method on that type, so it can reach the type's `priv` functions and fields. A `protocol` body rejects `test`, since a protocol has no concrete type to call. Its tests belong in the `impl` block of a conforming type.
+
+```koja
+struct Stack
+  items: List<Int>
+
+  fn push(self, item: Int) -> Stack
+    Stack{items: self.items.append(item)}
+  end
+
+  test "push grows the stack"
+    stack = Stack{items: List.new()}
+    assert stack.push(1).items.length() == 1
+  end
+end
+```
+
+Blocks compile only under `koja test` and `koja check`. Every other command drops them before type checking, so a block in `src/` never reaches a build. Two blocks in one scope may share a description. The runner tells them apart by line.
+
+The runner groups a test by its owner. A top-level block groups under its file path, a `struct`, `enum`, or `builtin` block under the type path, an `impl` block under `Type: Protocol`, and an `extend` block under the target type. Nested types give a hierarchy, so `ParserTest.Literals` is a group inside `ParserTest`.
+
+### `assert`
+
+`assert` is a statement, like `fail`. It is valid where `Test.Failure` is on the enclosing error channel, which means a `test` body or a helper that declares `! Test.Failure`. Anywhere else it is a compile error.
+
+```koja
+assert cond
+assert cond, "message"
+```
+
+When `cond` is false the statement fails the test with the source text of the condition, the file, the line, and the column. The message is any `String` expression and is evaluated only on failure. Assertions are hard. The first failure ends the test.
+
+The compiler recognizes the six comparison forms, `==`, `!=`, `<`, `<=`, `>`, and `>=`, binds each operand once, and records both values rendered through `Debug`. A failure then shows what was compared:
+
+```
+failure: assertion failed
+   ╭─ test/stack_test.koja:23:12
+   │
+23 │     assert popped == 3
+   │            ──────────
+   │            left:  2
+   │            right: 3
+```
+
+In a comparison the right operand takes the left operand's type, so `assert count == 0` checks against a `UInt32` and `assert stack.peek() == Option.None` infers the `Option` argument. Any other condition records its source text only.
+
+A helper that asserts declares `! Test.Failure` and is called with `try`:
+
+```koja
+priv fn assert_route(path: String, expected: String) ! Test.Failure
+  assert Router.match(path) == expected, "route for #{path}"
+end
+
+test "matches static paths"
+  try assert_route("/health", "health")
+  try assert_route("/", "root")
+end
+```
+
+### `Test.Failure`
+
+`Test.Failure` is the one error type on a test's channel. It is an enum in the `Test` package:
+
+```koja
+enum Failure
+  Assertion(Assertion)   # from assert
+  Error(String)          # a domain error or a message
+  Skipped(String)        # from Test.skip
+end
+```
+
+`Test.Failure` conforms to `StringLiteral`, so `fail "message"` inside a test produces `Failure.Error("message")` through the ordinary literal rule. Interpolated strings convert the same way. A `String` variable does not, and `fail Test.Failure.Error(message)` is the explicit form for that case.
+
+The `Test` package links only for `koja test` and `koja check`. A build cannot name `Test.Failure`, so it cannot put it on a channel, so an `assert` cannot survive in application code. `Kernel.panic` stays the crash verb outside tests.
+
+### Setup and Skips
+
+`Test.require` unwraps a `Result` that must succeed before the claim under test. An `Err` fails the test with the error's `Debug` rendering:
+
+```koja
+test "decodes a payload"
+  conn = try Test.require(connect())
+  row = try Test.require(conn.query_one("SELECT 1"))
+  assert row.cell(0) == Option.Some("1")
+end
+```
+
+There is no `Option` form. A claim about an `Option` is an `assert`, a gate on it is `Test.skip`, and a fixture bug is `unwrap`, which panics in the test's own process.
+
+An expected error needs no helper, because `Result` answers the question as a value and `assert` renders it:
+
+```koja
+test "rejects malformed input"
+  assert Base.decode64("Zm9v!GFy") == Result.Err(Base.Error.InvalidCharacter("!"))
+end
+```
+
+`Test.skip` ends the test as skipped with a reason. It is a call from the body, so the condition runs on every run. A known failure is `try Test.skip("#214: returns the wrong sign")` as the first line. The summary lists every skip, which keeps it from being forgotten.
+
+```koja
+test "round-trips through a live database"
+  if System.get_env("DATABASE_URL").none?()
+    try Test.skip("DATABASE_URL is not set")
+  end
+  # ...
+end
+```
+
+### Panics
+
+`Test.crashes` takes a closure, runs it in a child process, and returns `true` on an abnormal exit. A body that returns is `false`. A body that returns a `Result.Err` is also `false`, because an error on the channel is not a crash.
+
+```koja
+test "rejects an index past the end"
+  assert Test.crashes(fn () list.get(5).unwrap() end)
+end
+```
+
+A panic in the test body itself is contained the same way. The runner reports that test as crashed with the panic message and continues with the next one.
+
+### Running Tests
+
+`koja test` runs on the interpreter by default and compiles through LLVM when the project declares a C extern the interpreter cannot resolve. `--backend {interpreter,llvm}` picks one explicitly.
+
+| Flag                | Effect                                                                       |
+| ------------------- | ---------------------------------------------------------------------------- |
+| `--reporter <name>` | `dots` (default), `trace`, or `json`                                         |
+| `--trace`           | Same as `--reporter trace`, a group header and one line per test with timing |
+| `--out <path>`      | Write the `json` stream to a file instead of stderr                          |
+| `--timeout <ms>`    | Deadline per test, default 60000. A test that misses it is killed            |
+
+The `dots` and `trace` reporters follow the compiler's diagnostics style, so `--diagnostics`, `KOJA_DIAGNOSTICS`, `--no-color`, and `NO_COLOR` apply. The pretty style draws the source snippet above. The short style prints one line per failure:
+
+```
+test/stack_test.koja:23:12: failure: assert popped == 3 (left: 2, right: 3)
+```
+
+The `json` reporter writes one event per line for CI and editors. Its shapes are part of the `Test` package's public surface.
+
+The exit status is 1 when any test fails, crashes, or times out, and 0 otherwise. Skipped tests do not affect it.
+
+---
+
 ## Annotations
 
 An annotation is `@name` with an optional payload, placed before a
 declaration. Payloads are strings (single-line `"..."` or multiline
 `"""..."""`, interchangeable) or the literal `false`. By convention,
 annotations that carry prose (`@deprecated`, `@doc`) use the multiline form,
-and short labels like `@test` descriptions stay on one line.
+and short labels like `@link` library names stay on one line.
 
 The FFI annotations `@extern` and `@link` are covered in [C FFI](#c-ffi).
 
@@ -1958,29 +2202,16 @@ Doc strings support Markdown and are rendered by `koja doc`.
 
 ### `@test`
 
-Marks a function as a test case. `koja test` discovers and runs all
-`@test`-annotated functions in `src/` and `test/` directories. A test is
-a fallible function with a `String` error. Returning normally passes,
-and `fail message` fails with that message. Setup calls propagate with
-`try`, so a failed setup reads as a failed test.
+Deprecated in 0.19 and removed in 0.20. Use a [`test` block](#testing).
 
-```koja
-struct AdditionTest
-  @test "adds two integers"
-  fn test_addition ! String
-    result = add(2, 3)
+`@test "description"` on a function marks it as a test case. `koja test` still runs it, on a `! String` or `! Test.Failure` channel or with a `-> Result<T, String>` return, and reports a warning at the annotation:
 
-    if result != 5
-      fail "expected 5, got #{result}"
-    end
-  end
-end
+```
+warning: `@test` is deprecated. Koja 0.20 removes it.
+help: move the body into a `test "description"` block
 ```
 
-An optional string after `@test` provides a description printed during the
-test run. The runner reports every discovered test even when some fail.
-Tests declared as `-> Result<T, String>` still run. Any `Result.Ok` passes
-and `Result.Err(message)` fails.
+Old and new forms run side by side in one project, so a package can migrate one file at a time.
 
 ---
 
@@ -2006,6 +2237,8 @@ result.print()
 ```
 
 Extern functions have no body. Parameter and return types must be FFI-compatible: explicit-width primitives (`Int32`, `UInt8`, `Float32`, etc.), `Bool`, `CPtr<T>`, or `()`. Extern functions can coexist with normal Koja functions in the same struct. Use `priv fn` on the extern declarations and expose safe public wrappers.
+
+Both backends call extern functions. The compiled binary links the `@link` library with `-l`, and the interpreter loads it as a shared library and calls the symbol through libffi (see [Execution Backend](#execution-backend)).
 
 A `Float32` / `Float64` value returned by an extern call is checked at the call site. A NaN or infinity handed back by C panics with an `ArithmeticError` (`non-finite float returned by <name>`), keeping the finite-only float invariant intact across the FFI boundary (see [Arithmetic Faults](#arithmetic-faults)). `CPtr<Float32>.read()` and `CPtr<Float64>.read()` apply the same check (`non-finite float read by CPtr.read`), so a NaN in a C-filled buffer cannot enter a `Float` either.
 
@@ -2545,6 +2778,49 @@ Read-only process metrics. See [Runtime Observability](#runtime-observability) f
 - `pid.state() -> Option<Process.State>`: one process's lifecycle state, `Option.None` when dead or unknown.
 - `pid.mailbox_depth() -> Option<Int>`: one process's queued message count, `Option.None` when dead or unknown.
 
+### Time
+
+Three structs. `Duration` is a span, `Instant` is a point on the monotonic clock, and `Timestamp` is a point on the wall clock. Elapsed time in the running process comes from `Instant`, never from two `Timestamp` reads, because the wall clock can jump.
+
+- `Duration{unit: Duration.Unit, value: Int}`: `new(value, unit)`, `to_hours`, `to_minutes`, `to_seconds`, `to_milliseconds`, `to_microseconds`, `to_nanoseconds`, `plus`, `minus`, `zero?`. `Duration.Unit` is an enum of those six units, each of fixed length. `new` stores the caller's number and unit as given, so `Duration.new(30, Duration.Unit.Seconds)` holds `30` and `Seconds`. A `to_*` accessor truncates toward zero when it moves to a coarser unit and traps when the span does not fit `Int` at a finer one. `plus` and `minus` return the finer of the two units. Two durations are equal when they cover the same span, so one second equals `1_000` milliseconds.
+- `Instant{nanoseconds: Int}`: `now`, `elapsed`, `since(earlier)` (zero when `earlier` is later), `plus(Duration)`, `minus(Duration)`. The field counts nanoseconds from an anchor fixed in this process. It has no epoch, means nothing to another process, and is not a timestamp.
+- `Timestamp{since_epoch: Duration}`: `new(value, unit)`, `now`, `plus(Duration)`, `minus(Duration)`, `since(earlier)`. A `Duration` from the Unix epoch. `new` stores the caller's value and unit as given, so nothing is truncated on the way in, and `now` reads the clock in microseconds. Every conversion out is a `Duration` accessor on the field: `t.since_epoch.to_seconds()` is Unix time in seconds. Two timestamps are equal when they name the same moment, whatever their units.
+
+```koja
+started = Instant.now()
+work()
+IO.puts("took #{started.elapsed().to_milliseconds()}ms")
+
+created_at = Timestamp.now()
+expires_at = Timestamp.new(claims.exp, Duration.Unit.Seconds)
+timeout = Duration.new(30, Duration.Unit.Seconds)
+```
+
+`Duration` writes its own `equals?` so the comparison crosses units. `Instant` and `Timestamp` derive `Equality`, and `Timestamp` inherits the cross-unit comparison through its field. All three derive `Debug`. None has an ordering yet.
+
+The calendar types answer the other two questions about a moment, what the clock and calendar showed and what they showed in a given place. `Date`, `Time`, and `LocalDateTime` are civil values with no zone. `DateTime` is a `Timestamp` viewed in a `TimeZone`. A constructed civil value is always valid, since `Date.new` and `Time.new` check every field, and the year runs from 0 to 9999.
+
+- `Date{day: Int, month: Int, year: Int}`: `new(year, month, day) ! Date.Error`, `at(time)`, `day_of_week`, `day_of_year`, `days_in_month`, `leap_year?`, `plus_days`, `plus_months`, `plus_years`, `from_epoch_days`, `to_epoch_days`, and the constant `Date.UNIX_EPOCH`. `plus_months` clamps to the last day of the target month, so January 31 plus one month is February 28 or 29. `Weekday` is an enum from `Monday` to `Sunday` with `iso_number`.
+- `Time{hour: Int, microsecond: Int, minute: Int, second: Int}`: `new(hour, minute, second, microsecond = 0) ! Time.Error`, `since_midnight() -> Duration`, `after_midnight(Duration)`, and the constant `Time.MIDNIGHT`. Microsecond precision, since `Timestamp.now` reads microseconds. `after_midnight` wraps at 24 hours and truncates nanoseconds.
+- `LocalDateTime{date: Date, time: Time}`: `in_zone(zone) -> TimeZone.Resolution`, `plus_days`, `plus_months`. A clock reading with no zone, what a database `timestamp` column holds.
+- `TimeZone`: an enum with `UTC`, `Fixed(TimeZone.Offset)`, and `Named(TimeZone.Rules)`. `identifier`, `offset_at(timestamp)`. `TimeZone.Offset{seconds: Int}` is a distance from UTC within -18:00..+18:00, built with `new(seconds) ! TimeZone.Offset.Error`, with the constant `TimeZone.Offset.UTC`.
+- `TimeZone.Rules`: the data behind a named zone, `{final: TimeZone.Rule, identifier: String, initial: TimeZone.Offset, transitions: List<TimeZone.Transition>}`. A `TimeZone.Transition{at: Timestamp, offset: TimeZone.Offset}` holds from `at` until the next one. `TimeZone.Rule{daylight: Option<TimeZone.Rule.Daylight>, standard: TimeZone.Offset}` covers the years after the last transition, with `TimeZone.Rule.Point{month, week, weekday, seconds}` as the POSIX `Mm.w.d/time` form. The stdlib evaluates the rules and ships no data. The `koja-lang/tz` package embeds the IANA database and returns a `Named` zone from `TZ.zone("America/Chicago")`.
+- `TimeZone.Resolution`: `Unique(DateTime)`, `Gap(DateTime, DateTime)`, or `Ambiguous(DateTime, DateTime)`, returned wherever a civil time is placed in a zone. `compatible()` picks the answer most callers want, `earlier()` and `later()` pick a side, and `unique() ! TimeZone.Error` fails unless there was one answer. A `match` that forgets an arm does not compile. `UTC` and `Fixed` always resolve to `Unique`. A `Named` zone reports its skipped hour as `Gap` and its repeated hour as `Ambiguous`.
+- `DateTime{timestamp: Timestamp, zone: TimeZone}`: `now(zone)`, `date`, `time`, `local`, `offset`, `in_zone`, `to_utc`, `plus(Duration)`, `minus(Duration)`, `since(earlier)`, `plus_days -> TimeZone.Resolution`, `plus_months -> TimeZone.Resolution`. Nothing is cached, so `date` and `time` compute from the two fields. Two values are equal when they name the same instant in the same zone. `plus` is exact and moves the timestamp. `plus_days` is calendar arithmetic and keeps the clock time.
+
+Text goes through a format protocol per type, `Date.Format`, `Time.Format`, `LocalDateTime.Format`, and `DateTime.Format`. Each type has `to_string(format = ISO8601.Extended)` and `parse(text, format = ISO8601.Extended)`, which forward to the protocol, so the common case names no format. `ISO8601` is the stdlib format, an enum whose `Extended` variant writes `2026-09-16T17:39:00Z` and whose `Basic` variant writes `20260916T173900Z`. A `DateTime` in `Extended` form is RFC 3339. A parse fails with the field's error, `Date.Error.InvalidDay(30)`, when a field is out of range, and with `Malformed(text)` for any other shape.
+
+```koja
+created_at = Timestamp.now()
+shown = DateTime{timestamp: created_at, zone: TimeZone.UTC}
+json = shown.to_string()
+back = try DateTime.parse(json)
+assert back.timestamp == created_at
+
+birthday = try Date.parse(form.field("birthday"))
+compact = birthday.to_string(ISO8601.Basic)
+```
+
 ### Console I/O
 
 `IO` provides ergonomic console input/output. `STDIN`, `STDOUT`, and `STDERR` are available as `Fd` constants for low-level access.
@@ -2887,7 +3163,7 @@ Collection element, key, and value types come from the selected conformance. A n
 | `koja build`  | Compile to a native binary via LLVM              |
 | `koja run`    | Build and execute in one step                    |
 | `koja check`  | Type check without compiling                     |
-| `koja test`   | Run `@test`-annotated functions                  |
+| `koja test`   | Run the project's `test` blocks                  |
 | `koja tasks`  | List tasks from the project, deps, and toolchain |
 | `koja deps`   | Fetch and inspect dependencies (`get`, `update`) |
 | `koja format` | Opinionated code formatter (`--check` for CI)    |
@@ -2912,7 +3188,9 @@ The selector works with project-mode `build`, `check`, `run`, `shell`, `test`, `
 
 `koja run` executes through the interpreter by default for fast startup. Pass `--backend=llvm`, or any code generation flag such as `--release`, to compile a native binary and run that instead. `koja build` always compiles.
 
-A program that declares an `@extern "C"` function the interpreter has no handler for compiles through LLVM on its own, so an FFI project runs with a bare `koja run`. Pass `--backend=interpreter` to force the interpreter and see which extern is missing.
+The interpreter runs `@extern "C"` functions too. After lowering, the driver resolves every extern the program declares. A symbol with a built-in handler uses it. Any other symbol is looked up through the dynamic loader, first as `lib<name>.dylib` or `lib<name>.so` for its `@link` library under the project root (or the script's directory), then on the loader's own search path, then in the running process, which covers libc and libm. When every symbol resolves, the program runs on the interpreter and each foreign call goes through libffi with the declared signature. When one does not resolve, a bare `koja run` compiles through LLVM instead, so an FFI project always runs. Pass `--backend=interpreter` to force the interpreter, and the driver lists every extern it could not resolve.
+
+A static archive (`.a`) cannot be loaded at run time, so a project that ships only one compiles through LLVM. Build the library as a shared library next to the archive to run it on the interpreter.
 
 ### Documentation
 
@@ -2936,10 +3214,16 @@ koja build --release --target-cpu native
 
 ```
 my_app/
+  .gitignore
+  AGENTS.md
   koja.toml
   src/
     app.koja
+  test/
+    app_test.koja
 ```
+
+`src/app.koja` holds a `greet` function and the `App` process entry. `test/app_test.koja` holds one `test` block that asserts on `greet`, so `koja test` passes from the first command. `AGENTS.md` is a short guide to the language and the CLI for coding agents.
 
 The directory is created as typed. The package name is the last path segment in snake_case, so `koja new my_app`, `koja new my-app`, and `koja new MyApp` all scaffold package `my_app` with namespace `MyApp`. A nested path like `koja new projects/my-app` creates the intermediate directories.
 
