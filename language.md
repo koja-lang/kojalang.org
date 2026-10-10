@@ -3,7 +3,7 @@ layout: docs
 title: Language Reference
 description: The complete Koja language reference covering syntax, types, pattern matching, error handling, value semantics, protocols, concurrency, the standard library, and C FFI.
 permalink: /language/
-koja_version: 0.19.0
+koja_version: 0.20.0
 source_url: https://github.com/koja-lang/koja/blob/main/LANGUAGE.md
 toc_depth: 2
 ---
@@ -27,9 +27,9 @@ Koja is a statically typed, compiled language targeting native binaries via LLVM
 - [Error Handling](#error-handling): `! E` Signatures, `fail`, `try`, Error Unions, `rescue`
 - [Protocols](#protocols): Behavioral Contracts, Impl Blocks, Static Dispatch
 - [Packages](#packages): Transparent Files, Visibility, Aliases, Dependencies
-- [Concurrency](#concurrency): `Task`, Processes, Lifecycle, `Ref`, `ReplyTo`, `spawn`/`receive`, Runtime Observability
+- [Concurrency](#concurrency): `Task`, Processes, Lifecycle, `Ref`, `ReplyTo`, `spawn`/`receive`, Process Context, Tracing, Logging, Runtime Observability
 - [Testing](#testing): `test` Blocks, `assert`, `Test.Failure`, Setup and Skips, Panics, Running Tests
-- [Annotations](#annotations): `@deprecated`, `@doc`, `@test` (deprecated)
+- [Annotations](#annotations): `@deprecated`, `@experimental`, `@doc`
 - [C FFI](#c-ffi): `@extern "C"`, `CPtr<T>`, `CString`
 - [Standard Library](#standard-library): Core Types, Collections, String Functions, Binary/Bits, File I/O, Parsing, URI, Base, Path, Protocols
 - [Tooling](#tooling): CLI Commands, Custom Tasks, LSP, Formatter
@@ -128,6 +128,13 @@ name = "koja"
 
 A variable must be assigned before it is read. See [Definite Assignment](#definite-assignment) for control-flow rules.
 
+Assigning to `_` evaluates the right-hand side and discards the value. `_` binds nothing, so one body can discard values of different types and `_` can never be read.
+
+```koja
+_ = conn.close()
+_ = try setup(conn)
+```
+
 ### Type Annotations
 
 Optional type annotations follow the variable name with a colon:
@@ -152,7 +159,7 @@ x /= 4
 
 ### Constants
 
-Package-level constants are declared with `const`. Values can be literals (int, float, string, bool), binary literals whose segments are all literals, enum unit variants, or struct literals whose fields are all constant expressions:
+Package-level constants are declared with `const`. A constant value takes the same grammar as a field default (see [Default Field Values](#default-field-values)): literals, negated numerics, enum variants, binary literals, other constants, and struct, list, map, or set literals of those:
 
 ```koja
 const MAX = 100
@@ -162,15 +169,21 @@ const DEBUG = false
 const SYNC = <<0x53::8, 4::32>>
 const HEADING = Direction.North
 const ORIGIN = Point{x: 0, y: 0}
+const PRIMES = [2, 3, 5, 7]
+const PORTS = ["http": 80, "https": 443]
+const DEFAULT = Config{name: "web", ports: [80, 443]}
 ```
 
-An optional type annotation is supported for generic inference:
+An optional type annotation is supported for generic inference and for set literals, which share the list literal syntax:
 
 ```koja
 const EMPTY: Option<Int> = Option.None
+const TAGS: Set<String> = ["web", "api"]
 ```
 
-Constants are inlined at every usage site.
+A constant may read another constant declared anywhere in the program, in any source order. A constant that depends on itself, directly or through other constants, is a compile error.
+
+How a constant reaches its use sites depends on its value. Scalars (int, float, bool) are inlined at every read. Strings, binaries, enum variants, and struct literals of those are pooled once per program. Collections, and any value that contains one, are built once at program start. Each read borrows the shared value, and a binding clones it like any other list, so appending to a binding never changes the constant.
 
 Within a package, constants are read by bare name (`MAX`). Constants from the auto-imported `Global` package also resolve bare (`STDOUT`). Public constants in other packages are read through the package namespace (`Mathlib.PI`).
 
@@ -397,6 +410,13 @@ Short closures use `param -> expr` syntax as direct call arguments, with paramet
 option.map(x -> x + 1)
 list.filter(n -> n > 3)
 names.map(name -> name.upcase())
+```
+
+A closure with no parameters writes `()` on the left of the arrow:
+
+```koja
+Task.async(() -> compute())
+assert Test.crashes(() -> list.get(5).unwrap())
 ```
 
 Both positional and named arguments accept the short form, including arguments to generic functions. Use the block form outside a call argument or when the closure needs multiple parameters or statements.
@@ -811,7 +831,7 @@ c = Config{name: "app"} # host and port fill from the defaults
 Config{} # error: `name` has no default
 ```
 
-Default values are limited to side-effect-free expressions: literals (no interpolation), negated numerics, unit enum variants, binary literals, constants (`LIMIT`, `Duration.ZERO`), and struct, list, map, or set literals of those. The compiler checks each default against the field type at the declaration. A default cannot use an `alias` shorthand. Write the qualified name.
+Default values are limited to side-effect-free expressions: literals (no interpolation), negated numerics, enum variants, binary literals, constants (`LIMIT`, `Duration.ZERO`), and struct, list, map, or set literals of those. The compiler checks each default against the field type at the declaration. A default resolves in its declaring file, so it can name a type through a dotted path (`IO.Reader.Options{}`) or through one of that file's aliases.
 
 The default expression evaluates at each construction that omits the field. This makes generic defaults work: a `List<T>` field can default to `[]` and an `Option<T>` field to `Option.None`:
 
@@ -1143,6 +1163,8 @@ A member type widens to the union automatically:
 c = Cat{name: "Whiskers"}
 pet: Pet = c
 ```
+
+So does a union whose members all belong to the target. A `Cat | Dog` value flows into a `Pet` slot, and a function that fails with `ParseError | NetError` can be called with `try` from one that fails with `ParseError | NetError | AuthError`.
 
 Order doesn't matter. `Post | Comment` and `Comment | Post` are the same type.
 
@@ -1698,7 +1720,7 @@ The auto-imported `Global` package provides core types (`Option`, `Result`, `Lis
 
 - **`Crypto`**: `SHA1`, `SHA256`, `SHA384`, `SHA512`, `HMAC`, `Certificate`, `PrivateKey`, `PEMError`
 - **`JSON`**: `Value`, `Encoding`, `EncodeOptions`, `encode`, `decode`
-- **`Net`**: `TCPSocket`, `TCPListener`, `UDPSocket`, `Socket`, `IPAddress`, `SocketAddress`, `SocketKind`, `SocketError`, `TLSSession`, `TLSConfig`, `TLSIdentity`, `TrustStore`, `TLSError`, `VerificationError`
+- **`Net`**: `TCPSocket`, `TCPListener`, `UDPSocket`, `Socket`, `IPAddress`, `Socket.Address`, `Socket.Kind`, `Socket.Error`, `TLSSession`, `TLSConfig`, `TLSIdentity`, `TrustStore`, `TLSError`, `VerificationError`
 
 Use `alias Crypto.SHA256` or `alias Net.TCPSocket` to access them.
 
@@ -1947,6 +1969,98 @@ end
 
 In most cases you won't use `receive` directly. The `Process` protocol's default `run` implementation handles it for you.
 
+### Process Context
+
+`Process.Context` and `Process.context` are [`@experimental`](#experimental). A use warns until the project sets `experimental = true` in `koja.toml`, and the API can change in a later release.
+
+Every process carries a `Process.Context`, a 32-byte request context that follows the work. The runtime copies it into each child at `spawn`, stamps it onto every `cast`, `call`, and `send_after` message, and installs the message's copy on the receiver when the message is dequeued. A reply installs nothing, so a `call` leaves the caller's context as it was. Lifecycle signals and exit signals carry no context.
+
+```koja
+context = Process.context()
+context.sampled?()   # Bool, true inside a sampled trace
+context.trace_id()   # Binary, 16 bytes, all zero outside a trace
+context.span_id()    # Binary, 8 bytes, all zero outside a span
+```
+
+A process nobody traced carries `Process.Context.ZERO`. `Trace` fills the context in and is the only way to start one. User code reads the context and passes it along, it does not build one or write it, and it does not read the struct fields directly. The fields are the runtime layout and can grow.
+
+The context changes at each business message dequeue and keeps the last installed value between messages. Handlers written on the `Process` protocol never see the gap. A hand-written `receive` loop that must return to its own context wraps the wait in `Trace.span`.
+
+### Tracing
+
+`Trace` and its types are [`@experimental`](#experimental). A use warns until the project sets `experimental = true` in `koja.toml`, and the API can change in a later release.
+
+`Trace` opens spans as closures over `Process.context`. `Trace.root` starts a trace at a boundary and `Trace.span` opens a child of whatever context the calling process carries. Both install the span's context for the closure and put back what they found when it returns. Every `cast`, `call`, and `send_after` inside the closure carries the span's context to its receiver, so code below the boundary needs no parent argument.
+
+```koja
+response = Trace.root(
+  "GET /entities",
+  Trace.RootOptions{kind: Trace.SpanKind.Server},
+  fn (span: Trace.Span) -> Response
+    response = router.dispatch(request)
+    span.attribute("http.response.status_code", response.status.code)
+    response
+  end,
+)
+
+rows = Trace.span("db.query", span -> db.query(sql))
+```
+
+The `Trace.Span` inside the closure is a handle to a record the runtime holds, not a value. `span.attribute(key, value)` and `span.status(status)` write through to that record. Under an unsampled context the handle records nothing and `recording?()` is `false`.
+
+The two differ in where the parent comes from. `span` parents to the context the process carries, for work caused by a message. `root` parents to the `parent` in its `Trace.RootOptions` and ignores the context the process carries, for work caused by something outside the runtime such as a socket, a timer, or a boot. The defaults, `Internal` and no parent, start a new sampled trace, and `Trace.root(name, work)` is the short form for them. A trace that arrived from another service continues through a `Trace.Parent`. A codec package decodes the ids off the wire and builds one with `Trace.Parent.new(trace_id, span_id, sampled)`, which fails with `Trace.Error` when an id has the wrong length. The root then keeps the parent's trace id and sampled flag and names the parent's span as its parent. The stdlib ships no wire codec, so `traceparent` and its relatives live in packages.
+
+```koja
+parent = try Trace.Parent.new(trace_id, span_id, sampled)
+options = Trace.RootOptions{kind: Trace.SpanKind.Server, parent: Option.Some(parent)}
+response = Trace.root("GET /entities", options, span -> router.dispatch(request))
+```
+
+When the closure returns, the finished `Trace.SpanRecord` joins a queue that holds at most 4096 records. An exporter package drains it with `Trace.Export.pop()` and reports `Trace.Export.dropped()`, the count of records a full queue refused. The stdlib ships no exporter.
+
+### Logging
+
+`Log` and its types are [`@experimental`](#experimental). A use warns until the project sets `experimental = true` in `koja.toml`, and the API can change in a later release.
+
+`Log` writes structured records. A call names a level, a message, and a map of attributes. The runtime adds the calling process's `Process.Context` and a timestamp, so a record under a span carries the trace and span ids without a parameter.
+
+```koja
+Log.info("request handled", ["status": 200, "path": Log.Attribute.from(request.path)])
+Log.warn("retrying", ["attempt": Log.Attribute.from(attempt)])
+```
+
+A `Log.Config` names the handlers that take each record and the level floor. `Log.configure` installs it in the calling process. Every process the caller spawns from then on starts with a copy, so one call at the entry point configures the whole tree below it. A process spawned before the call keeps what it had. A process nobody configured writes `Info` and above to stdout through `Log.Text`.
+
+```koja
+Log.configure(
+  Log.Config{
+    handlers: [Log.Stdout.new(Log.Text{}).to_fn()],
+    level: Log.Level.Debug,
+  },
+)
+```
+
+A record below the floor is dropped before it is built, so a `Log.debug` under the default floor costs one comparison after its arguments are evaluated. `Log.with(attributes)` returns a `Log.Logger` that merges its attributes into every record it writes. An attribute named at the call wins over the bound one.
+
+```koja
+log = Log.with(["request_id": Log.Attribute.from(request.id)])
+log.info("lookup", ["table": "users"])
+```
+
+A handler is a type that implements `Log.Handler` or a plain `fn (Log.Record) -> Result<(), Log.Error>`. `to_fn` turns the first into the second. The `Log.Handler` protocol has one method, `handle_log`, which fails with a `Log.Error` when the record did not land. `Log` drops a handler that fails for the rest of that emit and writes one `Warn` record named `log handler failed` through the handlers that remain. A handler that logs does not recurse, since each process emits one record at a time and drops a record it would emit while another is on its way out.
+
+`Log.Formatter<T>` renders a record to a `T`. `Log.Text` is the stdlib formatter, which writes the timestamp in UTC, the level, the message, and the attributes as `key=value` pairs. `Log.Stdout` is the stdlib handler, which writes a formatter's `String` to stdout. A test replaces them with `Log.Capture`, a process that holds every record until `take` returns them.
+
+```koja
+capture = Log.Capture.start()
+Log.configure(Log.Config{handlers: [capture.handler()], level: Log.Level.Debug})
+
+work()
+
+records = capture.take()
+assert records.length() == 1
+```
+
 ### Runtime Observability
 
 The `Runtime` struct answers questions about the runtime as a whole. Two instance functions on `Pid` answer questions about one process:
@@ -2115,7 +2229,7 @@ end
 
 ```koja
 test "rejects an index past the end"
-  assert Test.crashes(fn () list.get(5).unwrap() end)
+  assert Test.crashes(() -> list.get(5).unwrap())
 end
 ```
 
@@ -2154,6 +2268,9 @@ and short labels like `@link` library names stay on one line.
 
 The FFI annotations `@extern` and `@link` are covered in [C FFI](#c-ffi).
 
+`@test` was removed in 0.20. The compiler points an old annotation at its
+replacement, the [`test` block](#testing).
+
 ### `@deprecated`
 
 Marks a declaration as deprecated. Every use produces a compile warning:
@@ -2177,9 +2294,50 @@ The message is required and should tell the caller what to use instead. Bare
 `@deprecated` is accepted on functions (top-level, inline, and `impl`/`extend`
 members), structs, enums, constants, type aliases, and protocols, including
 `priv` declarations. Warnings fire at every resolved use site (calls, type
-positions, construction, patterns, constant reads), except inside the
-deprecated declaration itself and inside `impl`/`extend` blocks whose target
-is deprecated, so deprecating a type does not flag its own functions.
+positions, construction, patterns, constant reads). Reading a constant a
+deprecated type owns, such as `Old.ZERO`, warns for the type. Warnings do not
+fire inside the deprecated declaration itself, inside a declaration nested in
+it, or inside `impl`/`extend` blocks whose target is deprecated, so
+deprecating a type does not flag its own functions or constants.
+
+### `@experimental`
+
+Marks a declaration as unstable. It stays documented and callable, and
+every use produces a compile warning:
+
+```koja
+@experimental """
+The export record shape is not final.
+"""
+struct Trace.Export
+  # ...
+end
+```
+
+```
+warning: `Trace.Export` is experimental and may change in a later release. The export record shape is not final. (hint: set `experimental = true` under `[project]` in koja.toml to accept this)
+```
+
+The message is optional. Bare `@experimental` warns with the fixed sentence
+alone. This differs from `@deprecated`, where the message must name the
+replacement. An empty message is a compile error.
+
+`@experimental` is accepted on the same declarations as `@deprecated` and
+suppresses warnings at the same places, inside the tagged declaration and
+inside `impl`/`extend` blocks whose target is tagged. A declaration can carry
+both tags, and a use then produces both warnings.
+
+A package accepts experimental declarations with `experimental = true` under
+`[project]` in its `koja.toml`. The flag silences the warning in that
+package's own files only. A dependency's flag does not cover the project, and
+the project's flag does not cover a dependency. Scripts and single files have
+no manifest and always warn.
+
+`@experimental` and `@doc false` do not combine. `@doc false` hides a
+declaration from the docs, which is the marker for an internal you do not
+want others to depend on. `@experimental` keeps the declaration in the docs
+with a callout and warns at each use. Putting both on one declaration is a
+compile error.
 
 ### `@doc`
 
@@ -2194,24 +2352,15 @@ fn add(a: Int32, b: Int32) -> Int32
 end
 ```
 
-`@doc false` excludes an item from generated documentation.
+`@doc false` excludes an item from generated documentation. Use it on a
+public declaration that exists for another package's benefit and that you do
+not want others to depend on. It is a documentation convention, not a
+compiler wall. To publish an unstable declaration with a warning instead of
+hiding it, use [`@experimental`](#experimental).
 
 `@doc` on a `priv` declaration is a compile error, since private items never appear in generated documentation.
 
 Doc strings support Markdown and are rendered by `koja doc`.
-
-### `@test`
-
-Deprecated in 0.19 and removed in 0.20. Use a [`test` block](#testing).
-
-`@test "description"` on a function marks it as a test case. `koja test` still runs it, on a `! String` or `! Test.Failure` channel or with a `-> Result<T, String>` return, and reports a warning at the annotation:
-
-```
-warning: `@test` is deprecated. Koja 0.20 removes it.
-help: move the body into a `test "description"` block
-```
-
-Old and new forms run side by side in one project, so a package can migrate one file at a time.
 
 ---
 
@@ -2518,7 +2667,7 @@ List literals (`[a, b, c]`) are backed by the `ListLiteral<T>` protocol. See [Li
 
 ### `Map<K, V>`
 
-A generic hash map. Keys must implement `Hash` and `Equality`. Uses open addressing with linear probing.
+A generic hash map. Keys must implement `Hash` and `Equality`, and the compiler checks this bound. Uses open addressing with linear probing.
 
 ```koja
 m: Map<String, Int> = Map.new()
@@ -2552,7 +2701,7 @@ Map literals (`[key: value, ...]`) are backed by the `MapLiteral<K, V>` protocol
 
 ### `Set<T>`
 
-A generic hash set of unique elements. Elements must implement `Hash` and `Equality`. Uses open addressing with linear probing.
+A generic hash set of unique elements. Elements must implement `Hash` and `Equality`, and the compiler checks this bound. Uses open addressing with linear probing.
 
 ```koja
 s: Set<Int> = Set.new()
@@ -2712,51 +2861,81 @@ roundtrip.print() # "hello"
 
 ### File I/O
 
-#### `Fd`
+Three error domains cover I/O. `IO.Error` is a failure on an open stream, `File.Error` is a failure on a path, and `Socket.Error` is a failure in connection setup. A function fails with the domain of the failure, so `File.open` fails with `File.Error` and a read on the descriptor it returned fails with `IO.Error`.
 
-A raw file descriptor for low-level I/O:
+- `IO.Error`: `BrokenPipe`, `Closed`, `ConnectionReset`, `Interrupted`, `TimedOut`, `Unknown(Int)`.
+- `File.Error`: `AlreadyExists`, `DirectoryNotEmpty`, `InvalidPath`, `IsDirectory`, `NotDirectory`, `NotFound`, `PermissionDenied`, `Unknown(Int)`.
+
+#### `IO.Reader<E>` and `IO.Writer<E>`
+
+The stream protocols. Each is generic in `E`, the error its implementor fails with, so the protocol does not need one enum wide enough for every stream. `IO.Descriptor` implements `IO.Reader<IO.Error>` and `TCPSocket` implements `IO.Reader<IO.Error | TLSError>`, and a caller sees the TLS cause by name. A type that implements `read` gets `read_string` and `read_line` from the protocol. Each method takes an options struct as its last parameter with an all-default value, so a call names only what it changes.
+
+- `IO.Reader.read(self, count: Int, options: IO.Reader.Options = IO.Reader.Options{}) -> Binary ! E`: reads up to `count` bytes. An empty `Binary` is end of input.
+- `IO.Reader.read_string(self, count: Int, options) -> String ! E | String.ConversionError`: reads up to `count` bytes and decodes them as UTF-8.
+- `IO.Reader.read_line(self, options) -> Option<String> ! E | String.ConversionError`: reads up to and drops the next newline. `Option.None` at end of input.
+- `IO.Writer.write(self, data: Binary | String, options: IO.Writer.Options = IO.Writer.Options{}) -> Int ! E`: writes data and returns the byte count written.
+
+`IO.Reader.Options` and `IO.Writer.Options` each hold `timeout: Option<Duration>`, `Option.None` by default. A read or write that waits past its timeout fails with `IO.Error.TimedOut`.
+
+A call site never writes `E`. A bound names it, and the bound's error is what the generic body fails with.
 
 ```koja
-struct Fd
-  descriptor: Int
+line = try socket.read_line(IO.Reader.Options{timeout: Option.Some(limit)})
+
+fn drain<S: IO.Reader<IO.Error>>(source: S) -> Int ! IO.Error
+  bytes = try source.read(4096)
+  bytes.byte_size()
+end
+```
+
+#### `IO.Descriptor`
+
+An open file descriptor. `File.open` returns one for a file, `STDIN`, `STDOUT`, and `STDERR` name the standard streams, and the socket types wrap one. `IO.Descriptor` implements `IO.Reader<IO.Error>` and `IO.Writer<IO.Error>`, and every operation on an open descriptor fails with `IO.Error`. `raw` is the integer the operating system knows the descriptor by.
+
+```koja
+struct IO.Descriptor
+  raw: Int32
 end
 ```
 
 Functions:
 
-- `read(self, count: Int) -> String ! String`: reads and validates up to `count` bytes as UTF-8.
-- `read_binary(self, count: Int) -> Binary ! String`: reads up to `count` arbitrary bytes.
-- `write(self, data: Binary | String) -> Int ! String`: writes data, returns bytes written.
-- `close(self) -> String ! String`: closes the descriptor.
+- `read`, `read_string`, `read_line`, and `write` as the protocols define them.
+- `close(self) ! IO.Error`: closes the descriptor. A later read or write fails with `IO.Error.Closed`.
+
+Three functions are for processes that drive a descriptor directly. Reads and writes wait for readiness on their own, so most code never calls them. Each takes an `IO.Descriptor.Interest`, `Readable` or `Writable`.
+
+- `block(self, interest: IO.Descriptor.Interest, timeout: Option<Duration> = Option.None) -> Bool`: suspends the current process until the descriptor is ready or `timeout` passes. Returns `true` when the wait ended on the timeout.
+- `watch(self, interest: IO.Descriptor.Interest)`: registers the descriptor for one `IO.Ready` message to the mailbox of the current process. The registration fires once, so call `watch` again after each message.
+- `unwatch(self)`: removes the registration.
+
+`IO.Ready` is the message `watch` produces, `Read(IO.Descriptor)`, `Write(IO.Descriptor)`, or `Error(IO.Descriptor)`. A process that handles it names it in its message union, as `impl Process<App, AppMsg | IO.Ready, String>`. `TCPServer` is the stdlib process that works this way, and its owner sees `TCPServer.Event` instead.
 
 #### `File`
 
-Higher-level file operations wrapping `Fd`:
-
-```koja
-struct File
-  fd: Fd
-end
-```
+Operations on paths. Each function names a file or directory by its path and fails with `File.Error`. `open` returns the `IO.Descriptor` for the file, and from there reads, writes, and `close` are `IO.Descriptor` methods that fail with `IO.Error`. `File` has no instance methods.
 
 Functions:
 
-- `File.open(path: String, mode: FileMode) -> File ! String`: opens a file with the given mode (`FileMode.Read`, `FileMode.Write`, `FileMode.Append`).
-- `File.read(path: String) -> String ! String`: reads an entire file as UTF-8 text (opens, reads, closes).
-- `File.read_binary(path: String) -> Binary ! String`: reads an entire file as arbitrary bytes.
-- `File.write(path: String, content: Binary | String) -> String ! String`: writes text or arbitrary bytes (creates or truncates).
+- `File.open(path: String, mode: File.Mode) -> IO.Descriptor ! File.Error`: opens a file with the given mode (`File.Mode.Read`, `File.Mode.Write`, `File.Mode.Append`).
+- `File.read(path: String) -> String ! File.Error | IO.Error | String.ConversionError`: reads an entire file as UTF-8 text (opens, reads, closes).
+- `File.read_binary(path: String) -> Binary ! File.Error | IO.Error`: reads an entire file as bytes.
+- `File.write(path: String, content: Binary | String) ! File.Error | IO.Error`: writes text or bytes (creates or truncates).
 - `File.exists?(path: String) -> Bool`: returns true if a file or directory exists at the path.
 - `File.dir?(path: String) -> Bool`: returns true only for directories (`exists?` covers both).
-- `File.delete(path: String) -> String ! String`: deletes a file.
-- `File.rename(source: String, destination: String) -> String ! String`: renames (moves) a file.
-- `File.mkdir(path: String) -> String ! String`: creates a single directory, erroring if the parent is missing or the path already exists.
-- `File.mkdir_p(path: String) -> String ! String`: creates a directory and any missing parents (like `mkdir -p`), succeeding if it already exists.
-- `File.rmdir(path: String) -> String ! String`: removes an empty directory.
-- `close(self) -> String ! String`: closes the file handle.
+- `File.delete(path: String) ! File.Error`: deletes a file.
+- `File.rename(source: String, destination: String) ! File.Error`: renames (moves) a file.
+- `File.mkdir(path: String) ! File.Error`: creates a single directory, erroring if the parent is missing or the path already exists.
+- `File.mkdir_p(path: String) ! File.Error`: creates a directory and any missing parents (like `mkdir -p`), succeeding if it already exists.
+- `File.rmdir(path: String) ! File.Error`: removes an empty directory.
 
 ```koja
-content = File.read("config.txt").unwrap()
+content = try File.read("config.txt")
 content.print()
+
+log = try File.open("app.log", File.Mode.Append)
+_ = try log.write("started\n")
+try log.close()
 ```
 
 ### Environment
@@ -2777,6 +2956,39 @@ Read-only process metrics. See [Runtime Observability](#runtime-observability) f
 - `Runtime.mailbox_depth() -> Int`: the calling process's queued message count.
 - `pid.state() -> Option<Process.State>`: one process's lifecycle state, `Option.None` when dead or unknown.
 - `pid.mailbox_depth() -> Option<Int>`: one process's queued message count, `Option.None` when dead or unknown.
+
+### Trace
+
+Closure-scoped spans over `Process.context`. See [Tracing](#tracing) for the semantics. `Trace` and its types are [`@experimental`](#experimental) and can change in a later release.
+
+- `Trace.root<R>(name: String, work: fn (Trace.Span) -> R) -> R` and `Trace.root<R>(name, options: Trace.RootOptions, work) -> R`: runs `work` in a span at a trace boundary. Starts a new sampled trace without a parent, continues `options.parent` otherwise. Ignores the context the process carries.
+- `Trace.RootOptions{kind: Trace.SpanKind = Internal, parent: Option<Trace.Parent> = Option.None}`: how a root opens.
+- `Trace.span<R>(name: String, work: fn (Trace.Span) -> R) -> R` and `Trace.span<R>(name, kind, work)`: runs `work` in a child span of the calling process's context. `Internal` when `kind` is omitted.
+- `Trace.current() -> Process.Context`: the calling process's context, the same as `Process.context()`.
+- `Trace.Parent{sampled: Bool, span: Int, trace_hi: Int, trace_lo: Int}`: a parent decoded off the wire. `Trace.Parent.new(trace_id: Binary, span_id: Binary, sampled: Bool) -> Trace.Parent ! Trace.Error` is the constructor, and `trace_id(self) -> Binary` and `span_id(self) -> Binary` give the ids back as bytes. `Trace.Error` is `InvalidSpanId` or `InvalidTraceId` when an id is not 8 or 16 bytes.
+- `Trace.Span`: the handle inside a closure. `attribute(self, key: String, value: Trace.Attribute)`, `status(self, status: Trace.Status)`, `recording?(self) -> Bool`.
+- `Trace.SpanRecord{attributes: Map<String, Trace.Attribute>, context: Process.Context, ended_at: Timestamp, kind: Trace.SpanKind, name: String, parent_span_id: Option<Binary>, started_at: Timestamp, status: Trace.Status}`: a finished span.
+- `Trace.Attribute{value: Bool | Float | Int | String}`: a span attribute. Literals convert where a `Trace.Attribute` is expected. `Trace.Attribute.from(value)` wraps a variable.
+- `Trace.SpanKind`: `Client`, `Internal`, `Server`. `Trace.Status`: `Error(String)`, `Ok`, `Unset`.
+- `Trace.Export.pop() -> Option<Trace.SpanRecord>`: the oldest finished span, for exporter packages. `Trace.Export.dropped() -> Int`: records a full queue has refused.
+
+### Log
+
+Structured records with a per-process configuration. See [Logging](#logging) for the semantics. `Log` and its types are [`@experimental`](#experimental) and can change in a later release.
+
+- `Log.debug(message: String, attributes: Map<String, Log.Attribute> = [:])`, `Log.info`, `Log.warn`, `Log.error`, `Log.trace`: writes one record at that level through the calling process's handlers. Returns before the record is built when the level is below the floor.
+- `Log.configure(config: Log.Config)`: installs the configuration in the calling process. Processes spawned after the call start with a copy.
+- `Log.with(attributes: Map<String, Log.Attribute>) -> Log.Logger`: a logger that merges `attributes` into every record. `Log.Logger` has the five level functions and `with(self, attributes)` for a narrower logger. An attribute named at the call wins.
+- `Log.Config{handlers: List<fn (Log.Record) -> Result<(), Log.Error>>, level: Log.Level = Info}`: the handlers that take each record and the level floor.
+- `Log.Level`: `Trace`, `Debug`, `Info`, `Warn`, `Error`. `at_least?(self, floor) -> Bool`, `parse(text: String) -> Log.Level ! Log.Level.ParseError`, `to_string(self) -> String`. `parse` reads a name in any letter case and fails with `Unknown(text)` for anything else.
+- `Log.Record{attributes: Map<String, Log.Attribute>, context: Process.Context, level: Log.Level, message: String, timestamp: Timestamp}`: one emitted record. `context` is the calling process's context at the time of the call.
+- `Log.Attribute{value: Bool | Float | Int | String}`: a record attribute. Literals convert where a `Log.Attribute` is expected. `Log.Attribute.from(value)` wraps a variable, and `to_string(self)` renders the value.
+- `Log.Handler`: a protocol with `handle_log(self, record: Log.Record) ! Log.Error` and a default `to_fn(self) -> fn (Log.Record) -> Result<(), Log.Error>` that closes over the handler for a `Log.Config`.
+- `Log.Error`: `Closed`, `Failed(String)`, `Write(IO.Error)`. `message(self) -> String` names the cause. `Log` drops a failing handler for the rest of that emit and writes one `Warn` record through the handlers that remain.
+- `Log.Formatter<T>`: a protocol with `format_log(self, record: Log.Record) -> T`.
+- `Log.Text`: a `Log.Formatter<String>` that writes `2026-09-21T14:13:20.123456Z INFO swept 12 rows job=cleaner`. The timestamp is UTC in RFC 3339 form and the attributes follow as `key=value` pairs.
+- `Log.Stdout<F: Log.Formatter<String>>`: a `Log.Handler` built with `Log.Stdout.new(formatter)` that writes each rendered record to stdout. The default configuration is `Log.Stdout.new(Log.Text{})` at `Info`.
+- `Log.Capture`: a collector process for tests. `Log.Capture.start() -> Log.Capture` spawns it, `handler(self)` returns the fn to put in a `Log.Config`, and `take(self) -> List<Log.Record>` returns every record so far and clears the collector.
 
 ### Time
 
@@ -2823,19 +3035,21 @@ compact = birthday.to_string(ISO8601.Basic)
 
 ### Console I/O
 
-`IO` provides ergonomic console input/output. `STDIN`, `STDOUT`, and `STDERR` are available as `Fd` constants for low-level access.
+`IO` is the I/O namespace. Its own functions are the console, and the descriptor type `IO.Descriptor`, the stream protocols `IO.Reader` and `IO.Writer`, the stream error `IO.Error`, and the readiness message `IO.Ready` nest under it. `STDIN`, `STDOUT`, and `STDERR` are `IO.Descriptor` constants for direct access.
 
 Functions:
 
 - `IO.puts(message: String)`: writes to stdout with a trailing newline.
 - `IO.warn(message: String)`: writes to stderr with a trailing newline.
 - `IO.write(message: String)`: writes to stdout without a trailing newline.
-- `IO.gets(prompt: String) -> String`: prints `prompt` and reads a line from stdin (without the trailing newline).
+- `IO.gets(prompt: String) -> Option<String> ! IO.Error | String.ConversionError`: prints `prompt` and reads one line from stdin without its newline. `Option.None` at end of input.
 
 ```koja
 IO.puts("hello")
-name = IO.gets("What is your name? ")
-IO.puts("Hello, #{name}!")
+match try IO.gets("What is your name? ")
+  Option.Some(name) -> IO.puts("Hello, #{name}!")
+  Option.None -> IO.puts("Goodbye.")
+end
 ```
 
 ### Parsing
@@ -3246,6 +3460,7 @@ Fields:
 - `src`: source directories (default `["src"]`).
 - `test`: test directories (default `["test"]`).
 - `koja`: minimum compiler version, e.g. `koja = "0.17.0"`. A bare version, no operators. An older compiler refuses the package (and any package depending on it) with an error naming both versions.
+- `experimental`: `true` accepts [`@experimental`](#experimental) declarations in this package's own files without a warning (default `false`). Each package in the graph sets its own flag.
 
 A `[dependencies]` table declares path and git dependencies (see [Dependencies](#dependencies)), and a `[tasks]` table exports custom CLI tasks (see [Custom Tasks](#custom-tasks)).
 
