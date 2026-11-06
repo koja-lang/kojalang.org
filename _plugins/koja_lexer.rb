@@ -32,7 +32,11 @@ class KojaLexer < Rouge::RegexLexer
     rule %r/\b[A-Z][A-Za-z0-9_]*\b/, Name::Class
     rule %r/[a-z_][A-Za-z0-9_]*\??(?=\s*\()/, Name::Function
     rule %r/[a-z_][A-Za-z0-9_]*\??/, Name
-    rule %r/->|<>|<=|>=|==|!=|[+\-*\/%]=?|[<>=?!]|\|/, Operator
+    # Named function reference, `&name/arity` or `&Pkg.name/arity`.
+    rule %r/(&)([A-Za-z_][A-Za-z0-9_.]*\??)(\/)(\d+)/ do
+      groups Operator, Name::Function, Operator, Num::Integer
+    end
+    rule %r/->|<>|<=|>=|==|!=|[+\-*\/%]=?|[<>=?!]|\||&/, Operator
     rule %r/[(){}\[\],.:]/, Punctuation
     rule %r/\s+/, Text::Whitespace
   end

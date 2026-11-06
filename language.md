@@ -3,7 +3,7 @@ layout: docs
 title: Language Reference
 description: The complete Koja language reference covering syntax, types, pattern matching, error handling, value semantics, protocols, concurrency, the standard library, and C FFI.
 permalink: /language/
-koja_version: 0.20.0
+koja_version: 0.20.1
 source_url: https://github.com/koja-lang/koja/blob/main/LANGUAGE.md
 toc_depth: 2
 ---
@@ -159,7 +159,7 @@ x /= 4
 
 ### Constants
 
-Package-level constants are declared with `const`. A constant value takes the same grammar as a field default (see [Default Field Values](#default-field-values)): literals, negated numerics, enum variants, binary literals, other constants, and struct, list, map, or set literals of those:
+Package-level constants are declared with `const`. A constant value takes the same grammar as a field default (see [Default Field Values](#default-field-values)) except named function references: literals, negated numerics, enum variants, binary literals, other constants, and struct, list, map, or set literals of those:
 
 ```koja
 const MAX = 100
@@ -374,7 +374,7 @@ struct Counter
 end
 ```
 
-A public declaration cannot leak a private type through its signature. A public function whose parameter or return type names a private type, or a public struct field, enum variant payload, type alias, or protocol function that mentions one, is a compile error. Callers outside the package could see the type but never name it, so the compiler rejects the leak at the declaration site.
+A public declaration cannot leak a private item through its header. A public function whose parameter or return type names a private type, or a public struct field, enum variant payload, type alias, or protocol function that mentions one, is a compile error. So is a public struct or enum variant whose field default names a private constant or function. Callers outside the package could see the name but never use it, so the compiler rejects the leak at the declaration site.
 
 `@doc` on a private declaration is also a compile error. Private items never appear in generated documentation, so use regular `#` comments instead.
 
@@ -831,7 +831,22 @@ c = Config{name: "app"} # host and port fill from the defaults
 Config{} # error: `name` has no default
 ```
 
-Default values are limited to side-effect-free expressions: literals (no interpolation), negated numerics, enum variants, binary literals, constants (`LIMIT`, `Duration.ZERO`), and struct, list, map, or set literals of those. The compiler checks each default against the field type at the declaration. A default resolves in its declaring file, so it can name a type through a dotted path (`IO.Reader.Options{}`) or through one of that file's aliases.
+Default values are limited to side-effect-free expressions: literals (no interpolation), negated numerics, enum variants, binary literals, constants (`LIMIT`, `Duration.ZERO`), named function references (`&name/arity`), and struct, list, map, or set literals of those. The compiler checks each default against the field type at the declaration. A default resolves in its declaring file, so it can name a type through a dotted path (`IO.Reader.Options{}`) or through one of that file's aliases. A public struct's default can name only public items (see [Private Declarations](#private-declarations)).
+
+A `fn` typed field can default to a named function reference but not a closure literal, which has a body and possible captures.
+
+```koja
+fn plain_error(code: Int, message: String) -> String
+  "#{code}: #{message}"
+end
+
+struct Config
+  error_response: fn (Int, String) -> String = &plain_error/2
+  handler: fn (Request) -> Response
+end
+
+Config{handler: &route/1} # error_response fills with &plain_error/2
+```
 
 The default expression evaluates at each construction that omits the field. This makes generic defaults work: a `List<T>` field can default to `[]` and an `Option<T>` field to `Option.None`:
 
@@ -1238,7 +1253,7 @@ identity(42).print()
 identity("hello").print()
 ```
 
-Type arguments are inferred at call sites from arguments and type annotations.
+Type arguments are inferred at call sites from arguments, type annotations, and protocol bounds.
 
 #### Generic Structs
 
@@ -1608,6 +1623,8 @@ fn count_items<T, Cursor, E: Enumeration<T, Cursor>>(source: E) -> Int
   count
 end
 ```
+
+A type parameter that appears only in a bound's arguments is inferred from the bounded type's conformance. `count_items([1, 2, 3])` fills `E` from the argument, then `T` and `Cursor` from the `Enumeration<Int, Int>` conformance of `List<Int>`.
 
 Bounds are verified at call sites. If a concrete type doesn't implement a required protocol, the compiler emits an error:
 
