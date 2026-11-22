@@ -3,7 +3,7 @@ layout: docs
 title: Language Reference
 description: The complete Koja language reference covering syntax, types, pattern matching, error handling, value semantics, protocols, concurrency, the standard library, and C FFI.
 permalink: /language/
-koja_version: 0.20.1
+koja_version: 0.21.0
 source_url: https://github.com/koja-lang/koja/blob/main/LANGUAGE.md
 toc_depth: 2
 ---
@@ -183,7 +183,7 @@ const TAGS: Set<String> = ["web", "api"]
 
 A constant may read another constant declared anywhere in the program, in any source order. A constant that depends on itself, directly or through other constants, is a compile error.
 
-How a constant reaches its use sites depends on its value. Scalars (int, float, bool) are inlined at every read. Strings, binaries, enum variants, and struct literals of those are pooled once per program. Collections, and any value that contains one, are built once at program start. Each read borrows the shared value, and a binding clones it like any other list, so appending to a binding never changes the constant.
+How a constant reaches its use sites depends on its value. Scalars (int, float, bool) are inlined at every read. Strings, binaries, enum variants, and struct literals of those are pooled once per program. Collections, values that widen into a union type, and any value that contains one of those, are built once at program start. Each read borrows the shared value, and a binding clones it like any other list, so appending to a binding never changes the constant.
 
 Within a package, constants are read by bare name (`MAX`). Constants from the auto-imported `Global` package also resolve bare (`STDOUT`). Public constants in other packages are read through the package namespace (`Mathlib.PI`).
 
@@ -307,8 +307,6 @@ fn pick(x: Int, y: Int) -> Int
 end
 ```
 
-See [Function Arity](https://github.com/koja-lang/koja/blob/main/design/FUNCTION-ARITY.md) for the full model.
-
 ### `return`
 
 Explicit `return` is available for early exits:
@@ -325,7 +323,7 @@ fn find(items: List<Int32>, target: Int32) -> Bool
 end
 ```
 
-`return` is a statement. It cannot appear inside another expression.
+`return` is a statement. It cannot appear inside another expression. It can be the last statement of a function or a closure.
 
 Every explicit `return` is typechecked against the declared return type with the same rules as the trailing expression, including numeric literal coercion (`return 5` in a `-> Int8` function produces an `Int8`). A bare `return` in a function that declares a return type is an error, and `return <value>` in a function that returns `Unit` is an error. A `return` whose value diverges (such as `return Kernel.panic("boom")`) is accepted in any function.
 
@@ -395,6 +393,8 @@ add =
     a + b
   end
 ```
+
+A closure that declares a return type checks its last expression against that type, with the same rules as a function.
 
 Closure parameters are passed by value, like function parameters:
 
@@ -1172,6 +1172,10 @@ Use `type` to name a union:
 type Pet = Cat | Dog | Fish
 ```
 
+Order doesn't matter. `Post | Comment` and `Comment | Post` are the same type.
+
+#### Widening
+
 A member type widens to the union automatically:
 
 ```koja
@@ -1181,7 +1185,91 @@ pet: Pet = c
 
 So does a union whose members all belong to the target. A `Cat | Dog` value flows into a `Pet` slot, and a function that fails with `ParseError | NetError` can be called with `try` from one that fails with `ParseError | NetError | AuthError`.
 
-Order doesn't matter. `Post | Comment` and `Comment | Post` are the same type.
+The arms of an `if`, a `cond`, a `match`, a `receive`, or a `?:` can yield different members when the position expects the union. Each arm widens to that union:
+
+```koja
+fn adopt(wants_cat: Bool) -> Pet
+  wants_cat ? Cat{name: "Whiskers"} : Dog{name: "Rex"}
+end
+```
+
+In a position that expects no union, the arms must have the same type.
+
+#### Functions and Protocol Bounds
+
+A union has no functions of its own. To call a function, `match` on the value and call it on the member:
+
+```koja
+match pet
+  cat: Cat -> cat.name
+  dog: Dog -> dog.name
+  fish: Fish -> fish.species
+end
+```
+
+A union satisfies a [trait bound](#trait-bounds) when every member implements the protocol. A call through the bound runs the function of the member the value holds:
+
+```koja
+fn introduce<T: Greeter>(animal: T) -> String
+  animal.greet()
+end
+
+introduce(pet) # works when Cat, Dog, and Fish all implement Greeter
+```
+
+This works only for a protocol whose functions all take `self` and name `Self` in no other position. A protocol with a static function, a `Self` parameter, or a `Self` result cannot pick one member from a value, so a union does not satisfy it. `Debug`, `Equality`, and `Hash` are the exceptions. A union gets `format()`, `print()`, `==`, and `hash()` when its members have them.
+
+#### Equality
+
+`==` and `!=` also compare a union with one of its members, on either side. The result is `true` when the union holds that member and the two values are equal. A narrower union compares with a wider one the same way.
+
+```koja
+pet: Pet = Cat{name: "Whiskers"}
+c = Cat{name: "Whiskers"}
+
+pet == c # true
+c == pet # true
+pet == Dog{name: "Rex"} # false, pet holds a Cat
+```
+
+#### Union Literals
+
+A literal in a position that expects a union builds one member. The member that is the default type of the literal wins, so `"text"` is a `String` and `true` is a `Bool` when the union has those members. Without that member, the literal goes to the one member that implements its [literal protocol](#literal-protocols). It is an error when two members do.
+
+```koja
+type Setting = Bool | String | Count # Count implements IntLiteral
+
+a: Setting = "auto" # a String
+b: Setting = 3 # a Count, through Count.from_int
+```
+
+#### Recursive Unions
+
+A `type` alias of a union can name itself in a type argument of `List`, `Map`, `Set`, or a generic struct or enum:
+
+```koja
+type Value = Bool | Int | String | List<Value> | Map<String, Value>
+
+fn count(value: Value) -> Int
+  match value
+    items: List<Value> ->
+      items.reduce(0, fn (sum: Int, item: Value) -> Int sum + count(item) end)
+
+    fields: Map<String, Value> ->
+      fields.length()
+
+    _ ->
+      1
+  end
+end
+
+config: Value = ["name": "koja", "tags": ["fast", "small"]]
+count([1, [2, [3, true]]]) # 4
+```
+
+Two aliases can name each other the same way. An alias cannot name itself as a direct member, as in `type Chain = Int | Chain`, or through a tuple, a function type, or a `CPtr`. Only a union alias can be recursive, so `type Rows = List<Rows>` is an error.
+
+A recursive alias is a type of its own. Two recursive aliases with the same members are different types, and a value of one does not flow into a position that expects the other.
 
 ### Tuples
 
@@ -1463,8 +1551,10 @@ The subject must produce a `Result`, and the enclosing function (or closure) mus
 Errors compose with ordinary [union types](#union-types). A function calling into two error domains declares the union, and each propagated or failed error widens into it without conversion ceremony:
 
 ```koja
-fn fetch_user(id: Int) -> User ! HTTP.Error | ParseError
-  response = try HTTP.get(user_url(id)) # HTTP.Error widens
+fn fetch_user(id: Int)
+  -> User ! HTTP.Error | Net.Socket.Error | IO.Error | Net.TLSError | ParseError
+
+  response = try HTTP.get(user_url(id)) # the four client errors widen
   try parse_user(response.body) # ParseError widens
 end
 ```
@@ -1638,7 +1728,7 @@ Unbounded type parameters (`<T>`) remain valid and backwards compatible.
 
 ### Dispatch
 
-Protocol dispatch is static via monomorphization. No vtables, no dynamic dispatch.
+Protocol dispatch is static via monomorphization. No vtables, no dynamic dispatch. A [union](#union-types) that satisfies a bound is the one case with a choice at run time. The call reads which member the value holds and calls the function of that member.
 
 ---
 
@@ -1683,6 +1773,16 @@ namespace = "HTTP"
 version = "0.1.0"
 ```
 
+### Manifest Constants
+
+Every project and dependency package declares two constants from its `koja.toml`. `PACKAGE_NAME` holds the manifest `name` and `PACKAGE_VERSION` holds its `version`. Inside the package they read bare. From another package they read through its namespace, like any other constant. Standard library packages do not declare them. For the toolchain version, call `Koja.version()`:
+
+```koja
+IO.puts("#{PACKAGE_NAME} #{PACKAGE_VERSION}")  # my_app 1.2.0
+IO.puts(Mathx.PACKAGE_VERSION)                  # 0.4.0
+IO.puts(Koja.version())                         # 0.21.0
+```
+
 ### Visibility
 
 Access control is at the declaration level (`priv`), not the file level:
@@ -1723,7 +1823,7 @@ decoder = &parse/1
 port = DEFAULT_PORT
 ```
 
-The local name keeps the case of its target. A function alias is lowercase and a type or constant alias is uppercase, so `alias JSON.decode as Parse` is an error. Only package-level declarations can be aliased. To reach a method or a nested type, alias the owning type and call through it.
+The local name keeps the case of its target. A function alias is lowercase and a type or constant alias is uppercase, so `alias JSON.decode as Parse` is an error. A type alias can name a nested type at any depth, as in `alias IO.Reader.Options as ReaderOptions`. A function or constant alias can name only a package-level declaration. To reach a method or a constant that a type owns, alias the type and call through it. An alias of an owner also reaches its nested types, so `alias Net.TCPServer` makes `TCPServer.Config` available.
 
 Qualified syntax still works with no alias:
 
@@ -1736,7 +1836,8 @@ response = HTTP.get("https://example.com")
 The auto-imported `Global` package provides core types (`Option`, `Result`, `List`, `Map`, `Set`, `Process`, `IO`, `File`, `URI`, `Base`, `Path`, etc.) with no alias needed. Domain-specific packages require qualified access:
 
 - **`Crypto`**: `SHA1`, `SHA256`, `SHA384`, `SHA512`, `HMAC`, `Certificate`, `PrivateKey`, `PEMError`
-- **`JSON`**: `Value`, `Encoding`, `EncodeOptions`, `encode`, `decode`
+- **`HTTP`**: `Request`, `Response`, `Status`, `Method`, `Version`, `Headers`, `Header`, `Error`, `Parser`, `delete`, `get`, `head`, `options`, `patch`, `post`, `put`, `request`
+- **`JSON`**: `Value`, `Null`, `NULL`, `Number`, `Object`, `Encoding`, `EncodeOptions`, `encode`, `decode`, `get`
 - **`Net`**: `TCPSocket`, `TCPListener`, `UDPSocket`, `Socket`, `IPAddress`, `Socket.Address`, `Socket.Kind`, `Socket.Error`, `TLSSession`, `TLSConfig`, `TLSIdentity`, `TrustStore`, `TLSError`, `VerificationError`
 
 Use `alias Crypto.SHA256` or `alias Net.TCPSocket` to access them.
@@ -2042,7 +2143,7 @@ When the closure returns, the finished `Trace.SpanRecord` joins a queue that hol
 `Log` writes structured records. A call names a level, a message, and a map of attributes. The runtime adds the calling process's `Process.Context` and a timestamp, so a record under a span carries the trace and span ids without a parameter.
 
 ```koja
-Log.info("request handled", ["status": 200, "path": Log.Attribute.from(request.path)])
+Log.info("request handled", ["status": 200, "path": Log.Attribute.from(request.uri.path)])
 Log.warn("retrying", ["attempt": Log.Attribute.from(attempt)])
 ```
 
@@ -2885,12 +2986,13 @@ Three error domains cover I/O. `IO.Error` is a failure on an open stream, `File.
 
 #### `IO.Reader<E>` and `IO.Writer<E>`
 
-The stream protocols. Each is generic in `E`, the error its implementor fails with, so the protocol does not need one enum wide enough for every stream. `IO.Descriptor` implements `IO.Reader<IO.Error>` and `TCPSocket` implements `IO.Reader<IO.Error | TLSError>`, and a caller sees the TLS cause by name. A type that implements `read` gets `read_string` and `read_line` from the protocol. Each method takes an options struct as its last parameter with an all-default value, so a call names only what it changes.
+The stream protocols. Each is generic in `E`, the error its implementor fails with, so the protocol does not need one enum wide enough for every stream. `IO.Descriptor` implements `IO.Reader<IO.Error>` and `TCPSocket` implements `IO.Reader<IO.Error | TLSError>`, and a caller sees the TLS cause by name. A type that implements `read` gets `read_string` and `read_line` from the protocol, and a type that implements `write` gets `write_all`. Each method takes an options struct as its last parameter with an all-default value, so a call names only what it changes.
 
 - `IO.Reader.read(self, count: Int, options: IO.Reader.Options = IO.Reader.Options{}) -> Binary ! E`: reads up to `count` bytes. An empty `Binary` is end of input.
 - `IO.Reader.read_string(self, count: Int, options) -> String ! E | String.ConversionError`: reads up to `count` bytes and decodes them as UTF-8.
 - `IO.Reader.read_line(self, options) -> Option<String> ! E | String.ConversionError`: reads up to and drops the next newline. `Option.None` at end of input.
-- `IO.Writer.write(self, data: Binary | String, options: IO.Writer.Options = IO.Writer.Options{}) -> Int ! E`: writes data and returns the byte count written.
+- `IO.Writer.write(self, data: Binary | String, options: IO.Writer.Options = IO.Writer.Options{}) -> Int ! E`: writes data and returns the byte count written, which can be less than the size of `data`. A call with data writes at least one byte or fails.
+- `IO.Writer.write_all(self, data: Binary | String, options) ! E`: writes all of `data`. It calls `write` until the destination has accepted every byte. `options.timeout` bounds each `write`, not the whole call, and a failure can come after some bytes are written.
 
 `IO.Reader.Options` and `IO.Writer.Options` each hold `timeout: Option<Duration>`, `Option.None` by default. A read or write that waits past its timeout fails with `IO.Error.TimedOut`.
 
@@ -2917,7 +3019,7 @@ end
 
 Functions:
 
-- `read`, `read_string`, `read_line`, and `write` as the protocols define them.
+- `read`, `read_string`, `read_line`, `write`, and `write_all` as the protocols define them.
 - `close(self) ! IO.Error`: closes the descriptor. A later read or write fails with `IO.Error.Closed`.
 
 Three functions are for processes that drive a descriptor directly. Reads and writes wait for readiness on their own, so most code never calls them. Each takes an `IO.Descriptor.Interest`, `Readable` or `Writable`.
@@ -3161,20 +3263,64 @@ Checksum.crc32c("123456789".to_binary()) == 0xE3069283
 
 ### JSON package
 
-`JSON.Value` represents a JSON value tree. Contextual literals can build nested arrays and objects directly:
+`JSON.Value` is a JSON value, a union of one type for each kind of value:
+
+```koja
+type Value = Null | Bool | Number | String | List<Value> | Object
+```
+
+`Bool`, `String`, and `List` are the Koja types. A JSON array is a `List<JSON.Value>`, so every `List` function works on it. The other three belong to the package:
+
+- `JSON.Null` has one value, the constant `JSON.NULL`.
+- `JSON.Number` holds the number as JSON writes it, in its `text` field.
+- `JSON.Object` holds its `entries`, a `List<(String, JSON.Value)>`. It keeps entry order and duplicate names.
+
+A literal builds a value in a position that expects one. A map literal builds an object, a list literal builds a list of values, and a number literal builds a number:
 
 ```koja
 payload: JSON.Value = [
   "name": "Koja",
   "active": true,
   "scores": [10, 20, 30],
-  "metadata": [:],
+  "owner": JSON.NULL
 ]
 ```
 
-JSON objects keep entry order and duplicate names. Use `JSON.Value.Null` for JSON null.
+A variable needs no conversion when its type is one of the six, so a `String`, a `Bool`, a `List<JSON.Value>`, or another `JSON.Value` goes in as it is. An `Int` or a `Float` is not one of the six, so call `to_json()` on it:
 
-`JSON.Encoding` converts a type to `JSON.Value` through `to_json`. `JSON.Value`, `Bool`, `Int`, `Float`, `String`, and `List<T: JSON.Encoding>` conform.
+```koja
+count = 3
+name = "Koja"
+tags: List<JSON.Value> = ["fast", "small"]
+payload: JSON.Value = ["name": name, "count": count.to_json(), "tags": tags]
+```
+
+To read a value, `match` with a typed binding for each type the code accepts. `JSON.get(value, key)` returns the value of a key as an `Option<JSON.Value>`. It returns `None` when the value is not an object or has no such key, and the last entry when a key occurs more than one time. `Object.get(key)` does the same for a `JSON.Object`.
+
+```koja
+match JSON.get(payload, "name")
+  Option.Some(name: String) when not name.empty?() -> name
+  _ -> fail "name is required"
+end
+```
+
+An array arrives as a list, so the arm binds the list itself:
+
+```koja
+match JSON.get(payload, "tags")
+  Option.Some(tags: List<JSON.Value>) -> tags.length()
+  _ -> 0
+end
+```
+
+`JSON.decode` checks a number against the JSON grammar and keeps its text, so it loses no digit. The code that reads the number picks the type:
+
+- `number.to_int()` returns `Int ! NumericConversionError`. A number with a fraction of zero is an integer, so `1.0` gives `1` and `1e2` gives `100`. It fails with `InvalidFormat` for `1.5`, the same as `"1.5".to_int()`, and with `OutOfRange` for an integer that does not fit in 64 bits.
+- `number.to_float()` returns `Float ! NumericConversionError`. It gives the nearest float, and fails with `OutOfRange` when the magnitude is too large.
+
+Two numbers are equal when they have the same value, so a decoded `1` equals a decoded `1.0`.
+
+`JSON.Encoding` converts a type to `JSON.Value` through `to_json`. `Bool`, `Int`, `Float`, `String`, `List<T: JSON.Encoding>`, and the three package types conform, so `JSON.Value` conforms too.
 
 ```koja
 struct Point
@@ -3184,8 +3330,7 @@ end
 
 impl JSON.Encoding for Point
   fn to_json(self) -> JSON.Value
-    value: JSON.Value = ["x": self.x.to_json(), "y": self.y.to_json()]
-    value
+    ["x": self.x.to_json(), "y": self.y.to_json()]
   end
 end
 
@@ -3383,6 +3528,15 @@ end
 Entry order and duplicate keys remain available to the conformer. The default `Map<K, V>` carrier still lowers directly to `Map.new().put(...)` without an intermediate entry list.
 
 Collection element, key, and value types come from the selected conformance. A non-generic type can therefore implement `ListLiteral<Item>` or `MapLiteral<Key, Value>`.
+
+Each entry of a list or map literal flows into the element, key, or value type the way an argument flows into a parameter. A member widens into a union, and a numeric literal takes a sized type:
+
+```koja
+mixed: List<Int | String> = [1, "a"]
+bytes: List<UInt8> = [1, 2, 3]
+```
+
+When the expected type is a union, a literal builds one member of it. See [Union Types](#union-types).
 
 ---
 
