@@ -20,6 +20,10 @@ the Koja repository's `INSTALLING.md` and `LANGUAGE.md`. Shared layouts live in
 `_layouts/`, and navigation and footer partials live in `_includes/`. Site
 metadata is in `_config.yml`.
 
+The release notes live in `_releases/`, with one file for each Koja release and
+canonical content from the Koja repository's `CHANGELOG.md`. The changelog page
+and its Atom feed live in `changelog/`.
+
 ## Formatting
 
 CI checks formatting with [Prettier](https://prettier.io). Format everything before committing:

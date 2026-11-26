@@ -1,0 +1,26 @@
+---
+layout: docs
+title: Changelog
+description: Every release of the Koja programming language from 0.12.1, newest first, with a link to the full notes of each one.
+source_url: https://github.com/koja-lang/koja/blob/main/CHANGELOG.md
+toc: false
+---
+
+{% assign releases = site.releases | reverse %}
+<ul class="release-list">
+  {% for release in releases %}
+  <li>
+    <a href="{{ release.url | relative_url }}">{{ release.version }}</a>
+    <time datetime="{{ release.date | date: '%Y-%m-%d' }}"
+      >{{ release.date | date: "%B %-d, %Y" }}</time
+    >
+  </li>
+  {% endfor %}
+</ul>
+
+<p>
+  The notes for releases before 0.12.1 are in the
+  <a href="https://github.com/koja-lang/koja/blob/main/CHANGELOG.md"
+    >changelog on GitHub</a
+  >.
+</p>

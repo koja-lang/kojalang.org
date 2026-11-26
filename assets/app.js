@@ -64,17 +64,24 @@ document.addEventListener("keydown", (event) => {
 
 /* ---------- nav version chip ---------- */
 
-// Shows the newest release next to the logo. The catalog is a static file
-// on GitHub Pages, so a failed fetch leaves the chip hidden.
+// The build writes the newest release on the site into the chip. The catalog
+// can have a newer version for a short time after a release. Then the chip
+// shows that version and links to its GitHub release. A failed fetch leaves
+// the chip as the build wrote it.
 const releaseLink = document.querySelector("[data-release-link]");
 
 if (releaseLink) {
+  const newerThanSite = (version) =>
+    version.localeCompare(releaseLink.dataset.version, undefined, {
+      numeric: true,
+    }) > 0;
+
   fetch("https://releases.kojalang.org/latest.json")
     .then((response) => (response.ok ? response.json() : null))
     .then((release) => {
-      if (release?.version) {
+      if (release?.version && newerThanSite(release.version)) {
         releaseLink.textContent = `v${release.version}`;
-        releaseLink.hidden = false;
+        releaseLink.href = `https://github.com/koja-lang/koja/releases/tag/v${release.version}`;
       }
     })
     .catch(() => {});
@@ -99,7 +106,7 @@ if (toc) {
     item.className = heading.tagName === "H3" ? "toc-h3" : "toc-h2";
     const link = document.createElement("a");
     link.href = `#${heading.id}`;
-    link.textContent = heading.textContent;
+    link.textContent = heading.textContent.trim();
     item.append(link);
     list.append(item);
     linkFor.set(heading.id, link);
@@ -116,7 +123,7 @@ if (toc) {
     anchor.className = "anchor-link";
     anchor.href = `#${heading.id}`;
     anchor.textContent = "#";
-    anchor.setAttribute("aria-label", `Link to ${heading.textContent}`);
+    anchor.setAttribute("aria-label", `Link to ${heading.textContent.trim()}`);
     heading.append(anchor);
   }
 

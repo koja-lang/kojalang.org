@@ -9,11 +9,23 @@ author: Henry Popp
 twitter:
   card: summary_large_image
 
+collections:
+  releases:
+    output: true
+    permalink: /changelog/:title/
+
 defaults:
   - scope:
       path: ""
     values:
       image: /static/og-image.png
+  - scope:
+      path: ""
+      type: releases
+    values:
+      layout: docs
+      render_with_liquid: false
+      description: Release notes for the Koja programming language.
 
 plugins:
   - jekyll-seo-tag
