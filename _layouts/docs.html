@@ -3,6 +3,7 @@ layout: default
 ---
 
 <div class="docs">
+  {% unless page.toc == false %}
   <aside class="docs-sidebar">
     <button
       class="docs-toc-toggle"
@@ -35,14 +36,26 @@ layout: default
       <p class="docs-toc-title">On this page</p>
     </nav>
   </aside>
+  {% endunless %}
   <article class="docs-content">
     <header class="docs-header">
       <h1>{{ page.title }}</h1>
+      {% if page.version %}
+      <p class="docs-meta">
+        Released {{ page.date | date: "%B %-d, %Y" }} ·
+        <a href="{{ '/changelog/' | relative_url }}">All releases</a> ·
+        <a
+          href="https://github.com/koja-lang/koja/releases/tag/v{{ page.version }}"
+          >GitHub release</a
+        >
+      </p>
+      {% else %}
       <p class="docs-meta">
         {% if page.koja_version %}Current as of Koja v{{ page.koja_version }}
         ·{% endif %}
         <a href="{{ page.source_url }}">Source on GitHub</a>
       </p>
+      {% endif %}
     </header>
     {{ content }}
   </article>

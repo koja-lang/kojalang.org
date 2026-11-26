@@ -1,0 +1,20 @@
+---
+---
+{%- assign newest = site.releases | last -%}
+# Koja
+
+> Koja is a statically typed programming language that compiles to native binaries through LLVM, with no garbage collector. It has a Rust-inspired type system, Swift-style value semantics, an Erlang-style concurrency model, and Ruby-inspired syntax.
+
+The newest release is Koja {{ newest.version }}, released on {{ newest.date | date: "%Y-%m-%d" }}. Koja is before version 1.0, and a minor release can include breaking changes. Read the changelog before you write code for a version.
+
+## Docs
+
+- [Language reference]({{ "/language/" | absolute_url }}): The syntax, the type system, concurrency, the standard library, and the tooling.
+- [Installation]({{ "/install/" | absolute_url }}): How to install a prebuilt binary or build the compiler from source.
+
+## Releases
+
+- [Changelog]({{ "/changelog/" | absolute_url }}): The releases from 0.12.1, newest first, with a link to the full notes of each one.
+- [Koja {{ newest.version }}]({{ newest.url | absolute_url }}): The notes for the newest release.
+- [Release feed]({{ "/changelog/feed.xml" | absolute_url }}): An Atom feed of the releases.
+- [Newest version](https://releases.kojalang.org/latest): The newest version number as plain text.

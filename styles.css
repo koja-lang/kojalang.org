@@ -807,6 +807,13 @@ button:focus-visible {
   max-width: 46rem;
 }
 
+/* A page can turn off its sidebar in the front matter. Its content then goes
+   across the full width of the page. */
+.docs-content:only-child {
+  grid-column: 1 / -1;
+  max-width: none;
+}
+
 .docs-header {
   margin-bottom: 2.5rem;
 }
@@ -847,6 +854,34 @@ button:focus-visible {
   font-family: var(--font-display);
   font-size: 1.05rem;
   font-weight: 600;
+}
+
+/* The changelog page shows each release as one row, with the version first
+   and the release date after it. */
+.docs-content .release-list {
+  padding-left: 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+}
+
+.docs-content .release-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-top: 0;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.release-list a {
+  flex: 0 0 4.25rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.release-list time {
+  color: var(--ink-soft);
+  font-size: 0.92rem;
 }
 
 .docs-content h2:hover .anchor-link,
