@@ -3,7 +3,7 @@ layout: docs
 title: Language Reference
 description: The complete Koja language reference covering syntax, types, pattern matching, error handling, value semantics, protocols, concurrency, the standard library, and C FFI.
 permalink: /language/
-koja_version: 0.21.0
+koja_version: 0.21.1
 source_url: https://github.com/koja-lang/koja/blob/main/LANGUAGE.md
 toc_depth: 2
 ---
@@ -1207,6 +1207,25 @@ match pet
 end
 ```
 
+A binding can also name a union of some of the members. The arm runs for each of those members, and the binding has that smaller union type:
+
+```koja
+match pet
+  cat: Cat -> cat.name
+  other: Dog | Fish -> other.format()
+end
+```
+
+A struct pattern or an enum variant pattern also matches one member. The type in the pattern names the member, so the arm needs no binding first:
+
+```koja
+match pet
+  Cat{name: n} -> n
+  Dog{name: n} -> n
+  fish: Fish -> fish.species
+end
+```
+
 A union satisfies a [trait bound](#trait-bounds) when every member implements the protocol. A call through the bound runs the function of the member the value holds:
 
 ```koja
@@ -1268,6 +1287,13 @@ count([1, [2, [3, true]]]) # 4
 ```
 
 Two aliases can name each other the same way. An alias cannot name itself as a direct member, as in `type Chain = Int | Chain`, or through a tuple, a function type, or a `CPtr`. Only a union alias can be recursive, so `type Rows = List<Rows>` is an error.
+
+A type declaration also cannot be a member of a union inside its own definition, as in `type Tree = Int | List<Float | Tree>`. Give that union a type declaration of its own:
+
+```koja
+type Tree = Int | List<Item>
+type Item = Float | Tree
+```
 
 A recursive alias is a type of its own. Two recursive aliases with the same members are different types, and a value of one does not flow into a position that expects the other.
 
@@ -1561,6 +1587,17 @@ end
 
 A `type` alias names a recurring union: `type AppError = HTTP.Error | ParseError`. Callers match on the union member to route errors (see [Union Types](#union-types)).
 
+A variant pattern inside `Result.Err` routes on one error of the union, and a typed binding takes the rest of a member:
+
+```koja
+match fetch_user(id)
+  Result.Ok(user) -> show(user)
+  Result.Err(ParseError.Empty) -> retry(id)
+  Result.Err(parse_error: ParseError) -> report(parse_error)
+  Result.Err(_) -> offline()
+end
+```
+
 ### `rescue`
 
 `expr rescue e -> handler` handles one expression's error inline. The `Ok` value flows through, and the handler receives the error and must produce the same success type or diverge (`fail` or a panic):
@@ -1779,8 +1816,8 @@ Every project and dependency package declares two constants from its `koja.toml`
 
 ```koja
 IO.puts("#{PACKAGE_NAME} #{PACKAGE_VERSION}")  # my_app 1.2.0
-IO.puts(Mathx.PACKAGE_VERSION)                  # 0.4.0
-IO.puts(Koja.version())                         # 0.21.0
+IO.puts(Mathx.PACKAGE_VERSION)                 # 0.4.0
+IO.puts(Koja.version())                        # 0.21.1
 ```
 
 ### Visibility
